@@ -1,0 +1,214 @@
+#!/usr/bin/env python
+
+# Created on Tue Sep 8 20:45:18 2020
+# Author: XiaoTao Wang
+
+## Required modules
+
+import argparse, sys, logging, logging.handlers, eaglec
+
+currentVersion = eaglec.__version__
+
+def getargs():
+    ## Construct an ArgumentParser object for command-line arguments
+    parser = argparse.ArgumentParser(description='''Predict and combine SV predictions from contact maps
+                                     at multiple resolutions.''',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    # Version
+    parser.add_argument('-v', '--version', action='version',
+                        version=' '.join(['%(prog)s',currentVersion]),
+                        help='Print version number and exit.')
+
+    parser.add_argument('--mcool', help='''Path to a mcool file containing contact matrices at multiple resolutions''')
+    parser.add_argument('--resolutions', default='1000,2000,5000,10000,25000,50000,100000,250000,500000,1000000',
+                        help='''Resolutions at which the contact matrices will be used for SV prediction.''')
+    parser.add_argument('--high-res', default='1000,2000,5000',
+                        help='''Resolutions that are exclusively used to detect short-range SVs and
+                        fine-map SV calls identified at coarser resolutions. This should be a subset
+                        of those passed to "--resolutions".''')
+    parser.add_argument('-O', '--output-prefix', help='''Prefix of the output file names''')
+    parser.add_argument('-g', '--genome', default='hg38', choices = ['hg38', 'hg19', 'chm13', 'other'],
+                       help='''Reference genome name.''')
+    parser.add_argument('-C', '--chroms', nargs = '*', default = ['#', 'X'],
+                        help = 'List of chromosome labels. Only Hi-C data within the specified '
+                        'chromosomes will be included. Specially, "#" stands for chromosomes '
+                        'with numerical labels. "--chroms" with zero argument will include '
+                        'all chromosome data.')
+    parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'CNV', 'Raw'],
+                        help = '''Normalization method. If you choose ICE, make sure you have run
+                        "cooler balance" on your Hi-C matrix before you run this command; If you
+                        choose CNV, make sure you have run "correct-cnv" of the NeoLoopFinder toolkit
+                        before you run this command.''')
+    parser.add_argument('--output-format', default='full', choices=['full', 'NeoLoopFinder'],
+                        help='''Format of the reported SVs. full: 10 columns will be reported for each
+                        SV, information includes breakpoint coordinates and probability values of each
+                        fusion type (++, +-, -+, --, ++/--, and +-/-+); NeoLoopFinder: 6-column format
+                        that can be directly used as the NeoLoopFinder input.''')
+    parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability threshold
+                        for filtering the original SV calls.''')
+    parser.add_argument('--qvalue-cutoff', default=0.01, type=float, help='''Q-value cutoff. We
+                        use a significant interaction detection procedure to perform a pre-filtering
+                        before inputing the images to the CNN models. Tuning down this value may
+                        accelerate the program but at the cost of sensitivity.''')
+    parser.add_argument('--intra-min', default=1, type=int,
+                        help='''The minimum intra-chromosomal interaction frequency value.
+                        Only chromatin contacts with the raw interaction frequency equal to or greater
+                        than this value will be considered. Tuning up this value may accelerate the program
+                        but at the cost of sensitivity.''')
+    parser.add_argument('-k', '--max-dis', default=25, type=int,
+                        help='''The maximum genomic distance (in the unit of pixels) at which the expected
+                        interaction frequency is calculated for determining intra-chromosomal significant
+                        interactions. Tuning down this value may accelerate the program but at the cost of
+                        sensitivity.''')
+    parser.add_argument('--inter-min-per', default=75, type=float,
+                        help='''The percentile of the minimum inter-chromosomal interaction frequency
+                        value. Tuning up this value may accelerate the program but at the cost of
+                        sensitivity.''')
+    parser.add_argument('--support-level', default=3, type=int,
+                        help='''The number of supporting resolutions. Only chromatin contacts that
+                        are determined as significant in at least number of resolutions are considered.''')
+    parser.add_argument('-p', '--nproc', default=8, type=int,
+                        help='The maximum number of processes to be allocated.')
+
+    ## Parse the command-line arguments
+    commands = sys.argv[1:]
+    if not commands:
+        commands.append('-h')
+    args = parser.parse_args(commands)
+    
+    return args, commands
+
+
+def run():
+
+    # Parse Arguments
+    args, commands = getargs()
+    # Improve the performance if you don't want to run it
+    if commands[0] not in ['-h', '-v', '--help', '--version']:
+        ## Root Logger Configuration
+        logger = logging.getLogger()
+        logger.setLevel(10)
+        console = logging.StreamHandler()
+        logfil = '{0}.log'.format(args.output_prefix)
+        filehandler = logging.FileHandler(logfil)
+        # Set level for Handlers
+        console.setLevel('INFO')
+        filehandler.setLevel('INFO')
+        # Customizing Formatter
+        formatter = logging.Formatter(fmt = '%(name)-25s %(levelname)-7s @ %(asctime)s: %(message)s',
+                                      datefmt = '%m/%d/%y %H:%M:%S')
+        
+        ## Unified Formatter
+        console.setFormatter(formatter)
+        filehandler.setFormatter(formatter)
+        # Add Handlers
+        logger.addHandler(console)
+        logger.addHandler(filehandler)
+        
+        ## Logging for argument setting
+        arglist = ['# ARGUMENT LIST:',
+                   '# Path to mcool = {0}'.format(args.mcool),
+                   '# Resolutions = {0}'.format(args.resolutions),
+                   '# Balance Type = {0}'.format(args.balance_type),
+                   '# Reference Genome = {0}'.format(args.genome),
+                   '# Included Chromosomes = {0}'.format(args.chroms),
+                   '# Probability Cutoff = {0}'.format(args.prob_cutoff),
+                   '# Output File Prefix = {0}'.format(args.output_prefix),
+                   '# Output Format = {0}'.format(args.output_format),
+                   '# Log file name = {0}'.format(logfil)
+                   ]
+        argtxt = '\n'.join(arglist)
+        logger.info('\n' + argtxt)
+
+        import cooler, time, os, tempfile
+        from eaglec.utilities import get_valid_cols, select_intra_candidate, calculate_expected, select_inter_candidate, cross_resolution_support
+
+        # read resolutions
+        resolutions = [int(r) for r in args.resolutions.split(',')]
+        high_res = [int(r) for r in args.high_res.split(',') if int(r) in resolutions]
+        clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, resolutions[0]))
+        # read chromosomes
+        chroms = []
+        for c in clr.chromnames:
+            chromlabel = c.lstrip('chr')
+            if (not args.chroms) or (chromlabel.isdigit() and '#' in args.chroms) or (chromlabel in args.chroms):
+                chroms.append(c)
+        
+        # cache folder
+        cache_root = os.path.abspath(os.path.expanduser('.eaglec2'))
+        if not os.path.exists(cache_root):
+            os.mkdir(cache_root)
+
+        tl = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
+        cache_folder = tempfile.mkdtemp(**{'suffix':tl, 'dir':cache_root})
+
+        # valid bins
+        if args.balance_type == 'CNV':
+            balance = 'sweight'
+        elif args.balance_type == 'ICE':
+            balance = 'weight'
+        else:
+            balance = False
+        
+        # expected values
+        expected_values = {}
+        logger.info('calculating the expected values ...')
+        for res in resolutions:
+            logger.info(res)
+            max_bins = max(200, 1000000//res)
+            expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
+        
+        # intra candidates
+        logger.info('Searching for intra-chromosomal candidates ...')
+        intra = {}
+        for res in resolutions:
+            logger.info(res)
+            if not res in high_res:
+                intra[res] = select_intra_candidate(clr, chroms, expected_values[res], k=args.max_dis,
+                                                    q_thre=args.qvalue_cutoff, minv=args.intra_min,
+                                                    nproc=args.nproc, highres=False)
+            else:
+                intra[res] = select_intra_candidate(clr, chroms, expected_values[res], k=args.max_dis,
+                                                    q_thre=args.qvalue_cutoff, minv=args.intra_min,
+                                                    nproc=args.nproc, highres=True)
+        
+        intra_counts = count_candidates(intra)
+        logger.info('total intra counts: {0}'.format(intra_counts[1]))
+        logger.info('intra counts by resolution:', intra_counts[0])
+        filtered_intra = cross_resolution_support(intra, level=args.support_level-1, intra=True)
+        intra_counts = count_candidates(filtered_intra)
+        logger.info('after filtering intra counts: {0}'.format(intra_counts[1]))
+        logger.info('after filtering by resolution:', intra_counts[0])
+        
+        # inter candidates
+        logger.info('Searching for inter-chromosomal candidates ...')
+        inter = {}
+        for res in resolutions:
+            if not res in high_res:
+                logger.info(res)
+                inter[res] = select_inter_candidate(clr, chroms, min_per=args.inter_min_per,
+                                                    q_thre=args.qvalue_cutoff, nproc=args.nproc)
+        
+        inter_counts = count_candidates(inter)
+        logger.info('total inter counts: {0}'.format(inter_counts[1]))
+        logger.info('inter counts by resolution:', inter_counts[0])
+        filtered_inter = cross_resolution_support(inter, level=args.support_level-1, intra=False)
+        inter_counts = count_candidates(filtered_inter)
+        logger.info('after filtering inter counts: {0}'.format(inter_counts[1]))
+        logger.info('after filtering by resolution:', inter_counts[0])
+
+def count_candidates(by_res):
+
+    counts = {}
+    for r in by_res:
+        tmp = by_res[r]
+        counts[r] = sum([len(tmp[k]) for k in tmp])
+    
+    total = sum(list(counts.values()))
+    
+    return counts, total
+
+
+if __name__ == '__main__':
+    run()

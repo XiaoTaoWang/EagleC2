@@ -1,0 +1,75 @@
+#!/usr/bin/env python
+
+import argparse, sys, eaglec, os
+
+currentVersion = eaglec.__version__
+
+def getargs():
+    ## Construct an ArgumentParser object for command-line arguments
+    parser = argparse.ArgumentParser(description='''Plot a local intra-chromosomal contact map
+                                     with predicted SVs marked on it.''',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    # Version
+    parser.add_argument('-v', '--version', action='version',
+                        version=' '.join(['%(prog)s',currentVersion]),
+                        help='Print version number and exit.')
+
+    parser.add_argument('--cool-uri', help='''Cool URI.''')
+    parser.add_argument('--full-sv-file', help='''Path to an SV file outputed from predictSV
+                        or predictSV-single-resolution in "full" format.''')
+    parser.add_argument('-p', '--prob-cutoff', default=0.5, type=float,
+                        help='''Only SVs with probability greater than this value will be plotted.''')
+    parser.add_argument('--cnv-file', help='''Copy number profile in bigwig format. Optional.''')
+    parser.add_argument('--region', help='''Genomic region in format "chrom:start-end".''')
+    parser.add_argument('-O', '--output-figure-name', help='''Output figure name.''')
+    parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'Raw', 'CNV'])
+    parser.add_argument('--coordinates-to-display', nargs='+', type=int)
+    parser.add_argument('--contact-max-value', type=float)
+    parser.add_argument('--cnv-max-value', type=float)
+    parser.add_argument('--marker-size', default=20, type=int)
+    parser.add_argument('--dpi', default=800, type=int)
+
+    ## Parse the command-line arguments
+    commands = sys.argv[1:]
+    if not commands:
+        commands.append('-h')
+    args = parser.parse_args(commands)
+    
+    return args, commands
+
+def run():
+
+    # Parse Arguments
+    args, commands = getargs()
+    # Improve the performance if you don't want to run it
+    if commands[0] not in ['-h', '-v', '--help', '--version']:
+
+        from eaglec.visualize import intraChrom
+
+        if args.balance_type == 'Raw':
+            correct = False
+        elif args.balance_type == 'CNV':
+            correct = 'sweight'
+        else:
+            correct = 'weight'
+        
+        chrom, interval = args.region.split(':')
+        start, end = interval.split('-')
+        start, end = int(start), int(end)
+
+        vis = intraChrom(args.cool_uri, chrom, start, end, correct=correct)
+        vis.matrix_plot(vmax=args.contact_max_value)
+        vis.plot_coordinates(args.coordinates_to_display)
+        if args.cnv_max_value is None:
+            cnv_max_value = 'auto'
+        else:
+            cnv_max_value = args.cnv_max_value
+        
+        if not args.cnv_file is None:
+            vis.plot_signal('Copy Number Profile', args.cnv_file, max_value=cnv_max_value)
+        vis.plot_SV(args.full_sv_file, size=args.marker_size, prob_cutoff=args.prob_cutoff)
+        vis.outfig(args.output_figure_name, dpi=args.dpi)
+
+if __name__ == '__main__':
+    run()

@@ -1,0 +1,21 @@
+Copyright (c) 2024, Xiaotao Wang
+All rights reserved.
+
+This software is provided free of charge to the academic research community for non-commercial
+research and educational purposes only. It may not be redistributed in any form, without prior
+written permission from the authors. Permission is granted to modify the code for your own personal
+use, but modified versions must retain this copyright notice and must not be distributed.
+It cannot be used for commercial purposes without permission from the authors. For information on
+the use for a commercial purpose or by a commercial or for-profit entity, please contact
+Dr. Xiaotao Wang (wangxiaotao@fudan.edu.cn).
+
+If utilization of EagleC2 (or the modified versions) results in a publication, please cite
+the following publication:
+
+
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR
+THE USE OR OTHER DEALINGS IN THE SOFTWARE.

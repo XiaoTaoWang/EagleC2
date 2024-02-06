@@ -1,0 +1,62 @@
+#!/usr/bin/env python
+
+import argparse, sys, eaglec, os
+
+currentVersion = eaglec.__version__
+
+def getargs():
+    ## Construct an ArgumentParser object for command-line arguments
+    parser = argparse.ArgumentParser(description='''Plot a genome-wide contact map with
+                                     predicted SVs marked on it.''',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
+    # Version
+    parser.add_argument('-v', '--version', action='version',
+                        version=' '.join(['%(prog)s',currentVersion]),
+                        help='Print version number and exit.')
+
+    parser.add_argument('--cool-uri', help='''Cool URI.''')
+    parser.add_argument('--full-sv-file', help='''Path to an SV file outputed from predictSV
+                        or predictSV-single-resolution in "full" format.''')
+    parser.add_argument('-p', '--prob-cutoff', default=0.5, type=float,
+                        help='''Only inter-chromosomal SVs with probability greater than
+                        this value will be plotted.''')
+    parser.add_argument('-O', '--output-figure-name', help='''Output figure name.''')
+    parser.add_argument('-C', '--chroms', nargs = '+',
+                        help = 'List of chromosome labels to plot.')
+    parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'Raw'])
+    parser.add_argument('--contact-max-value', type=float)
+    parser.add_argument('--marker-size', default=20, type=int)
+    parser.add_argument('--dpi', default=800, type=int)
+
+    ## Parse the command-line arguments
+    commands = sys.argv[1:]
+    if not commands:
+        commands.append('-h')
+    args = parser.parse_args(commands)
+    
+    return args, commands
+
+def run():
+
+    # Parse Arguments
+    args, commands = getargs()
+    # Improve the performance if you don't want to run it
+    if commands[0] not in ['-h', '-v', '--help', '--version']:
+
+        from eaglec.visualize import interChrom
+
+        if args.balance_type == 'Raw':
+            correct = False
+        else:
+            correct = 'weight'
+
+        vis = interChrom(args.cool_uri, args.chroms, correct=correct)
+        vis.matrix_plot(vmax=args.contact_max_value)
+        vis.plot_chromosome_bounds()
+        vis.add_chrom_labels()
+        vis.plot_SV(args.full_sv_file, size=args.marker_size, prob_cutoff=args.prob_cutoff)
+        vis.outfig(args.output_figure_name, dpi=args.dpi)
+
+if __name__ == '__main__':
+    run()
