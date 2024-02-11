@@ -3,6 +3,7 @@ import numpy as np
 from joblib import Parallel, delayed
 from sklearn.isotonic import IsotonicRegression
 from sklearn.cluster import dbscan
+from numba import njit
 
 log = logging.getLogger(__name__)
 
@@ -79,8 +80,36 @@ def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
     IR.fit(sorted(Ed), [Ed[i] for i in sorted(Ed)])
     d = np.arange(max(Ed)+1)
     exp_arr = IR.predict(list(d))
-    Ed = dict(zip(d, exp_arr))
     
-    return Ed
+    return exp_arr
+    
+@njit
+def distance_normaize_core(sub, exp, x, y, w):
 
+    # calculate x and y indices
+    x_arr = np.arange(x-w, x+w+1).reshape((2*w+1, 1))
+    y_arr = np.arange(y-w, y+w+1)
 
+    D = y_arr - x_arr
+    D = np.abs(D)
+    min_dis = D.min()
+    max_dis = D.max()
+    if max_dis >= exp.size:
+        return sub
+    else:
+        exp_sub = np.zeros(sub.shape)
+        for d in range(min_dis, max_dis+1):
+            xi, yi = np.where(D==d)
+            for i, j in zip(xi, yi):
+                exp_sub[i, j] = exp[d]
+            
+        normed = sub / exp_sub
+
+        return normed
+    
+@njit
+def image_normalize(arr_2d):
+
+    arr_2d = (arr_2d - arr_2d.min()) / (arr_2d.max() - arr_2d.min()) # value range: [0,1]
+
+    return arr_2d

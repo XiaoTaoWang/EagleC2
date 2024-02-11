@@ -16,7 +16,7 @@ def select_intra_core(clr, c, Ed, k, q_thre, minv, highres=False):
     evalue = Ed[k]
     dis = y - x
     if highres:
-        mask = (dis >= k) & (dis <= max(Ed)//2) & (v > minv)
+        mask = (dis >= k) & (dis <= Ed.size//4) & (v > minv)
     else:
         mask = (dis >= k) & (v > minv)
         
@@ -25,7 +25,7 @@ def select_intra_core(clr, c, Ed, k, q_thre, minv, highres=False):
     pvalues = Poiss.sf(v_collect)
     # check for short-range contacts
     idx = np.arange(M.shape[0])
-    for i in range(9, k):
+    for i in range(10, k):
         diag = M.diagonal(i)
         xi = idx[:-i][diag>minv]
         yi = idx[i:][diag>minv]
@@ -52,7 +52,8 @@ def select_intra_candidate(clr, chroms, Ed, k=20, q_thre=0.01, minv=1, nproc=4, 
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
     bychrom = {}
     for c, candi in results:
-        bychrom[c] = candi
+        if len(candi):
+            bychrom[(c, c)] = candi
     
     return bychrom
 
@@ -189,7 +190,8 @@ def select_inter_candidate(clr, chroms, windows=[3, 4, 5], min_per=50, q_thre=0.
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
     for c1, c2, candi in results:
-        bychrom[(c1, c2)] = candi
+        if len(candi):
+            bychrom[(c1, c2)] = candi
     
     return bychrom
 

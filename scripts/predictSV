@@ -129,9 +129,10 @@ def run():
         argtxt = '\n'.join(arglist)
         logger.info('\n' + argtxt)
 
-        import cooler, time, os, tempfile
+        import cooler, time, os, tempfile, joblib
         from eaglec.utilities import calculate_expected
         from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate, cross_resolution_support
+        from eaglec.extractMatrix import collect_images
 
         # read resolutions
         resolutions = [int(r) for r in args.resolutions.split(',')]
@@ -163,10 +164,10 @@ def run():
         # expected values
         expected_values = {}
         expected_values_raw = {}
-        logger.info('calculating the expected values ...')
+        logger.info('Calculating the expected values ...')
         for res in resolutions:
-            logger.info(res)
-            max_bins = max(200, 1000000//res)
+            logger.info('Resolution {0}'.format(res))
+            max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
             if not balance:
@@ -178,7 +179,7 @@ def run():
         logger.info('Searching for intra-chromosomal candidates ...')
         intra = {}
         for res in resolutions:
-            logger.info(res)
+            logger.info('Resolution {0}'.format(res))
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             if not res in high_res:
                 intra[res] = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
@@ -189,13 +190,10 @@ def run():
                                                     q_thre=args.qvalue_cutoff, minv=args.intra_min,
                                                     nproc=args.nproc, highres=True)
         
-        intra_counts = count_candidates(intra)
-        logger.info('total intra counts: {0}'.format(intra_counts[1]))
-        logger.info('intra counts by resolution: {0}'.format(intra_counts[0]))
         filtered_intra = cross_resolution_support(intra, level=args.support_level-1, intra=True)
         intra_counts = count_candidates(filtered_intra)
-        logger.info('after filtering intra counts: {0}'.format(intra_counts[1]))
-        logger.info('after filtering by resolution: {0}'.format(intra_counts[0]))
+        logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
+        logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
         
         # inter candidates
         logger.info('Searching for inter-chromosomal candidates ...')
@@ -203,17 +201,26 @@ def run():
         for res in resolutions:
             if not res in high_res:
                 clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
-                logger.info(res)
+                logger.info('Resolution {0}'.format(res))
                 inter[res] = select_inter_candidate(clr, chroms, min_per=args.inter_min_per,
                                                     q_thre=args.qvalue_cutoff, nproc=args.nproc)
         
-        inter_counts = count_candidates(inter)
-        logger.info('total inter counts: {0}'.format(inter_counts[1]))
-        logger.info('inter counts by resolution: {0}'.format(inter_counts[0]))
         filtered_inter = cross_resolution_support(inter, level=args.support_level-1, intra=False)
         inter_counts = count_candidates(filtered_inter)
-        logger.info('after filtering inter counts: {0}'.format(inter_counts[1]))
-        logger.info('after filtering by resolution: {0}'.format(inter_counts[0]))
+        logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
+        logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
+
+        data_collect = []
+        fidx = 1
+        maxn = 100000
+        data_collect, fidx = collect_images(args.mcool, filtered_intra, expected_values, balance, data_collect,
+                                            cache_folder, fidx, maxn=maxn, w=15, nproc=args.nproc)
+        data_collect, fidx = collect_images(args.mcool, filtered_inter, expected_values, balance, data_collect,
+                                            cache_folder, fidx, maxn=maxn, w=15, nproc=args.nproc)
+        if len(data_collect):
+            outfil = os.path.join(cache_folder, 'collect_{0}.pkl'.format(fidx))
+            joblib.dump(data_collect, outfil, compress=('xz', 3))
+            logger.info('Collected {0} images'.format((fidx-1) * maxn + len(data_collect)))
         
 
 def count_candidates(by_res):
