@@ -2,7 +2,6 @@ import cooler, logging
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.isotonic import IsotonicRegression
-from sklearn.cluster import dbscan
 from numba import njit
 
 log = logging.getLogger(__name__)

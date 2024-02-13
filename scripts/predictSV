@@ -21,12 +21,14 @@ def getargs():
                         help='Print version number and exit.')
 
     parser.add_argument('--mcool', help='''Path to a mcool file containing contact matrices at multiple resolutions''')
-    parser.add_argument('--resolutions', default='1000,2000,5000,10000,25000,50000,100000,250000,500000,1000000',
+    parser.add_argument('--resolutions', default='10000,25000,50000,100000,250000,500000,1000000',
                         help='''Resolutions at which the contact matrices will be used for SV prediction.''')
-    parser.add_argument('--high-res', default='1000,2000,5000',
+    parser.add_argument('--high-res', default='10000,25000',
                         help='''Resolutions that are exclusively used to detect short-range SVs and
                         fine-map SV calls identified at coarser resolutions. This should be a subset
                         of those passed to "--resolutions".''')
+    parser.add_argument('--model-path', default='EagleC2-models',
+                        help='''Path to the folder containing pretrained models''')
     parser.add_argument('-O', '--output-prefix', help='''Prefix of the output file names''')
     parser.add_argument('-g', '--genome', default='hg38', choices = ['hg38', 'hg19', 'chm13', 'other'],
                        help='''Reference genome name.''')
@@ -41,11 +43,13 @@ def getargs():
                         choose CNV, make sure you have run "correct-cnv" of the NeoLoopFinder toolkit
                         before you run this command.''')
     parser.add_argument('--output-format', default='full', choices=['full', 'NeoLoopFinder'],
-                        help='''Format of the reported SVs. full: 10 columns will be reported for each
-                        SV, information includes breakpoint coordinates and probability values of each
-                        fusion type (++, +-, -+, --, ++/--, and +-/-+); NeoLoopFinder: 6-column format
-                        that can be directly used as the NeoLoopFinder input.''')
-    parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability threshold
+                        help='''Format of the reported SVs. full: For each SV, 11 columns will
+                        be reported. The Information includes breakpoint coordinates, probability
+                        values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), and the
+                        resolution of the contact matrix from which the SV is originally predicted.
+                        NeoLoopFinder: 6-column format that can be directly used as the NeoLoopFinder
+                        input.''')
+    parser.add_argument('--prob-cutoff', default=0.7, type=float, help='''Probability threshold
                         for filtering the original SV calls.''')
     parser.add_argument('--qvalue-cutoff', default=0.01, type=float, help='''Q-value cutoff. We
                         use a significant interaction detection procedure to perform a pre-filtering
@@ -110,6 +114,7 @@ def run():
         ## Logging for argument setting
         arglist = ['# ARGUMENT LIST:',
                    '# Path to mcool = {0}'.format(args.mcool),
+                   '# Path to CNN models = {0}'.format(args.model_path),
                    '# Resolutions = {0}'.format(args.resolutions),
                    '# High Resolutions = {0}'.format(args.high_res),
                    '# Balance Type = {0}'.format(args.balance_type),
@@ -130,9 +135,11 @@ def run():
         logger.info('\n' + argtxt)
 
         import cooler, time, os, tempfile, joblib
+        import numpy as np
         from eaglec.utilities import calculate_expected
         from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate, cross_resolution_support
         from eaglec.extractMatrix import collect_images
+        from eaglec.predictCore import load_models, predict, remove_redundant_predictions, refine_predictions
 
         # read resolutions
         resolutions = [int(r) for r in args.resolutions.split(',')]
@@ -175,6 +182,9 @@ def run():
             else:
                 expected_values_raw[res] = calculate_expected(clr, chroms, False, max_bins, nproc=args.nproc)
         
+        joblib.dump(expected_values, os.path.join(cache_folder, 'expected_values.pkl'))
+        joblib.dump(expected_values_raw, os.path.join(cache_folder, 'expected_values_raw.pkl'))
+
         # intra candidates
         logger.info('Searching for intra-chromosomal candidates ...')
         intra = {}
@@ -190,10 +200,16 @@ def run():
                                                     q_thre=args.qvalue_cutoff, minv=args.intra_min,
                                                     nproc=args.nproc, highres=True)
         
-        filtered_intra = cross_resolution_support(intra, level=args.support_level-1, intra=True)
-        intra_counts = count_candidates(filtered_intra)
-        logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
-        logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
+        intra_counts = count_candidates(intra)
+        if intra_counts[1] < 100000:
+            filtered_intra = intra
+            logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
+            logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
+        else:
+            filtered_intra = cross_resolution_support(intra, level=args.support_level-1, intra=True)
+            intra_counts = count_candidates(filtered_intra)
+            logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
+            logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
         
         # inter candidates
         logger.info('Searching for inter-chromosomal candidates ...')
@@ -205,11 +221,18 @@ def run():
                 inter[res] = select_inter_candidate(clr, chroms, min_per=args.inter_min_per,
                                                     q_thre=args.qvalue_cutoff, nproc=args.nproc)
         
-        filtered_inter = cross_resolution_support(inter, level=args.support_level-1, intra=False)
-        inter_counts = count_candidates(filtered_inter)
-        logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
-        logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
+        inter_counts = count_candidates(inter)
+        if inter_counts[1] < 100000:
+            filtered_inter = inter
+            logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
+            logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
+        else:
+            filtered_inter = cross_resolution_support(inter, level=args.support_level-1, intra=False)
+            inter_counts = count_candidates(filtered_inter)
+            logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
+            logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
 
+        logger.info('The extracted images will be exported to the folder {0}'.format(cache_folder))
         data_collect = []
         fidx = 1
         maxn = 100000
@@ -222,6 +245,41 @@ def run():
             joblib.dump(data_collect, outfil, compress=('xz', 3))
             logger.info('Collected {0} images'.format((fidx-1) * maxn + len(data_collect)))
         
+        logger.info('Predicting SVs at each resolution ...')
+        models = load_models(args.model_path)
+        original_predictions = predict(cache_folder, models, prob_cutoff=args.prob_cutoff, batch_size=256)
+        original_predictions = remove_redundant_predictions(original_predictions)
+        joblib.dump(original_predictions, '{0}.pkl'.format(args.output_prefix))
+        logger.info('Done')
+
+        logger.info('Fine-map original SV calls at higher resolutions ...')
+        SVs = refine_predictions(original_predictions, resolutions, models, args.mcool, balance,
+                                 expected_values, w=15, baseline_prob=0.01)
+        with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
+            if args.output_format == 'full':
+                out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+', 'resolution'])+'\n')
+            for line in SVs:
+                c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res = line
+                if args.output_format == 'full':
+                    out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res))
+                else:
+                    strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
+                    probs = np.r_[[prob1, prob2, prob3, prob4, prob5, prob6]]
+                    idx = np.argmax(probs)
+                    strand_list = strands[idx].split('/')
+                    for strand in strand_list:
+                        annot = 'translocation'
+                        if c1 == c2:
+                            if strand == '+-':
+                                annot = 'deletion'
+                            elif strand == '-+':
+                                annot = 'duplication'
+                            elif strand in ['++', '--']:
+                                annot = 'inversion'
+
+                        out.write('\t'.join([c1, c2, strand, str(p1), str(p2), annot])+'\n')
+
+        logger.info('Done')
 
 def count_candidates(by_res):
 

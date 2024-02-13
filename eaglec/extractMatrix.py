@@ -28,28 +28,29 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w):
     xi, yi = xi[mask], yi[mask]
 
     # extract and normalize submatrices surrounding the input coordinates
-    seed = np.arange(-w, w+1)
-    delta = np.tile(seed, (seed.size, 1))
-    xxx = xi.reshape((xi.size, 1, 1)) + delta.T
-    yyy = yi.reshape((yi.size, 1, 1)) + delta
-    v = np.array(Matrix[xxx.ravel(), yyy.ravel()]).ravel()
-    vvv = v.reshape((xi.size, seed.size, seed.size))
     data = []
-    for i in range(xi.size):
-        x = xi[i]
-        y = yi[i]
-        window = vvv[i]
-        window[np.isnan(window)] = 0
-             
-        if not check_sparsity(window):
-            continue
-        
-        if c1 == c2:
-            window = distance_normaize_core(window, exp, x, y, w)
-        
-        window = image_normalize(window)
+    if xi.size > 0:
+        seed = np.arange(-w, w+1)
+        delta = np.tile(seed, (seed.size, 1))
+        xxx = xi.reshape((xi.size, 1, 1)) + delta.T
+        yyy = yi.reshape((yi.size, 1, 1)) + delta
+        v = np.array(Matrix[xxx.ravel(), yyy.ravel()]).ravel()
+        vvv = v.reshape((xi.size, seed.size, seed.size))
+        for i in range(xi.size):
+            x = xi[i]
+            y = yi[i]
+            window = vvv[i]
+            window[np.isnan(window)] = 0
+                
+            if not check_sparsity(window):
+                continue
+            
+            if c1 == c2:
+                window = distance_normaize_core(window, exp, x, y, w)
+            
+            window = image_normalize(window)
 
-        data.append((window, (c1, x, c2, y, res)))
+            data.append((window, (c1, x, c2, y, res)))
     
     return data
 
