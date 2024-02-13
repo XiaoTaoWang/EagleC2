@@ -134,7 +134,7 @@ def dict2list(D, res):
     for sv in D:
         for c1, c2 in D[sv]:
             for p1, p2 in D[sv][(c1, c2)]:
-                line = (c1, p1*res, c2, p2*res) + tuple(D[sv][(c1, c2)][(p1, p2)]) + (res,)
+                line = (c1, p1*res, c2, p2*res) + tuple(D[sv][(c1, c2)][(p1, p2)]) + (res, res)
                 L.append(line)
     
     return L
@@ -194,7 +194,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
             nL = []
             for line in L:
                 c1, p1, c2, p2 = line[:4]
-                info = line[4:]
+                info = list(line[4:])
                 s_l = range((p1-tr)//qr, int(np.ceil((p1+tr*2)/qr)))
                 e_l = range((p2-tr)//qr, int(np.ceil((p2+tr*2)/qr)))
                 images = []
@@ -204,7 +204,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                         if c1 == c2:
                             if y - x < 8:
                                 continue
-                            
+
                         interval1 = (c1, x*qr-qr*w, x*qr+qr*w+qr)
                         interval2 = (c2, y*qr-qr*w, y*qr+qr*w+qr)
                         M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
@@ -224,11 +224,12 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                     images = np.r_[images]
                     images = convert2TF(images, 256)
                     prob_pool = np.stack([model.predict(images) for model in models])
-                    idx = np.argmax(info[:-1])
+                    idx = np.argmax(info[:-2])
                     prob_mean = prob_pool.mean(axis=0)[:,idx]
                     best_i = prob_mean.argmax()
                     if prob_mean[best_i] > baseline_prob:
-                        nL.append(coords[best_i] + info)
+                        info[-1] = qr
+                        nL.append(coords[best_i] + tuple(info))
                     else:
                         sv_list.append(line)
                 else:

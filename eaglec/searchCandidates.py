@@ -79,7 +79,7 @@ def filter_candidates(candidate_pool):
     
     return candidates
 
-def select_inter_core(clr, c1, c2, windows, min_per, q_thre):
+def select_inter_core(clr, c1, c2, windows, min_per, less_stringent, q_thre):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c1, c2)
     x, y = M.nonzero()
@@ -114,78 +114,80 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre):
 
         candidates_pool.append(coords)
     
-    # contacts in each row/column are treated differently
-    global_avg = v.mean()
-    # column
-    M = M.tocsc()
-    indices, indptr = M.indices, M.indptr
-    pvalues = []
-    x_collect = []
-    y_collect = []
-    for i in range(M.shape[1]):
-        col = M[indices[indptr[i]:indptr[i+1]], i].toarray().ravel()
-        if col.size > 10:
-            avg = col.mean()
-        else:
-            avg = global_avg
+    if not less_stringent:
+        # contacts in each row/column are treated differently
+        global_avg = v.mean()
+        # column
+        M = M.tocsc()
+        indices, indptr = M.indices, M.indptr
+        pvalues = []
+        x_collect = []
+        y_collect = []
+        for i in range(M.shape[1]):
+            col = M[indices[indptr[i]:indptr[i+1]], i].toarray().ravel()
+            if col.size > 10:
+                avg = col.mean()
+            else:
+                avg = global_avg
 
-        Poiss = stats.poisson(avg)
-        tmp_p = Poiss.sf(col)
-        tmp_x = indices[indptr[i]:indptr[i+1]]
-        tmp_y = np.ones_like(tmp_x) * i
-        pvalues.append(tmp_p)
-        x_collect.append(tmp_x)
-        y_collect.append(tmp_y)
-    
-    pvalues = np.concatenate(pvalues)
-    x_collect = np.concatenate(x_collect)
-    y_collect = np.concatenate(y_collect)
-    qvalues = multipletests(pvalues, method='fdr_bh')[1]
-    mask = qvalues < q_thre
-    x_collect, y_collect = x_collect[mask], y_collect[mask]
-    coords = set(zip(x_collect, y_collect))
-    candidates_pool.append(coords)
+            Poiss = stats.poisson(avg)
+            tmp_p = Poiss.sf(col)
+            tmp_x = indices[indptr[i]:indptr[i+1]]
+            tmp_y = np.ones_like(tmp_x) * i
+            pvalues.append(tmp_p)
+            x_collect.append(tmp_x)
+            y_collect.append(tmp_y)
+        
+        pvalues = np.concatenate(pvalues)
+        x_collect = np.concatenate(x_collect)
+        y_collect = np.concatenate(y_collect)
+        qvalues = multipletests(pvalues, method='fdr_bh')[1]
+        mask = qvalues < q_thre
+        x_collect, y_collect = x_collect[mask], y_collect[mask]
+        coords = set(zip(x_collect, y_collect))
+        candidates_pool.append(coords)
 
-    # rows
-    M = M.tocsr()
-    indices, indptr = M.indices, M.indptr
-    pvalues = []
-    x_collect = []
-    y_collect = []
-    for i in range(M.shape[0]):
-        row = M[i, indices[indptr[i]:indptr[i+1]]].toarray().ravel()
-        if row.size > 10:
-            avg = row.mean()
-        else:
-            avg = global_avg
+        # rows
+        M = M.tocsr()
+        indices, indptr = M.indices, M.indptr
+        pvalues = []
+        x_collect = []
+        y_collect = []
+        for i in range(M.shape[0]):
+            row = M[i, indices[indptr[i]:indptr[i+1]]].toarray().ravel()
+            if row.size > 10:
+                avg = row.mean()
+            else:
+                avg = global_avg
 
-        Poiss = stats.poisson(avg)
-        tmp_p = Poiss.sf(row)
-        tmp_y = indices[indptr[i]:indptr[i+1]]
-        tmp_x = np.ones_like(tmp_y) * i
-        pvalues.append(tmp_p)
-        x_collect.append(tmp_x)
-        y_collect.append(tmp_y)
-    
-    pvalues = np.concatenate(pvalues)
-    x_collect = np.concatenate(x_collect)
-    y_collect = np.concatenate(y_collect)
-    qvalues = multipletests(pvalues, method='fdr_bh')[1]
-    mask = qvalues < q_thre
-    x_collect, y_collect = x_collect[mask], y_collect[mask]
-    coords = set(zip(x_collect, y_collect))
-    candidates_pool.append(coords)
+            Poiss = stats.poisson(avg)
+            tmp_p = Poiss.sf(row)
+            tmp_y = indices[indptr[i]:indptr[i+1]]
+            tmp_x = np.ones_like(tmp_y) * i
+            pvalues.append(tmp_p)
+            x_collect.append(tmp_x)
+            y_collect.append(tmp_y)
+        
+        pvalues = np.concatenate(pvalues)
+        x_collect = np.concatenate(x_collect)
+        y_collect = np.concatenate(y_collect)
+        qvalues = multipletests(pvalues, method='fdr_bh')[1]
+        mask = qvalues < q_thre
+        x_collect, y_collect = x_collect[mask], y_collect[mask]
+        coords = set(zip(x_collect, y_collect))
+        candidates_pool.append(coords)
 
     candidates = filter_candidates(candidates_pool)
 
     return c1, c2, candidates
 
-def select_inter_candidate(clr, chroms, windows=[3, 4, 5], min_per=50, q_thre=0.01, nproc=4):
+def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
+                           less_stringent=False, q_thre=0.01, nproc=4):
 
     queue = []
     for i in range(len(chroms)-1):
         for j in range(i+1, len(chroms)):
-            queue.append((clr, chroms[i], chroms[j], windows, min_per, q_thre))
+            queue.append((clr, chroms[i], chroms[j], windows, min_per, less_stringent, q_thre))
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
