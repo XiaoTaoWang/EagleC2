@@ -1,4 +1,4 @@
-import cooler, logging
+import cooler, logging, joblib, os, eaglec
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.isotonic import IsotonicRegression
@@ -81,6 +81,42 @@ def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
     exp_arr = IR.predict(list(d))
     
     return exp_arr
+
+def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
+
+    gaps = {}
+    if ref_genome in ['hg19', 'hg38', 'chm13']:
+        folder = os.path.join(os.path.split(eaglec.__file__)[0], 'data')
+        if clr.binsize <= 10000:
+            ref_gaps = joblib.load(os.path.join(folder, '{0}.gap-mask.10k.pkl'.format(ref_genome)))
+        elif 10000 < clr.binsize <= 50000:
+            ref_gaps = joblib.load(os.path.join(folder, '{0}.gap-mask.50k.pkl'.format(ref_genome)))
+        else:
+            ref_gaps = joblib.load(os.path.join(folder, '{0}.gap-mask.500k.pkl'.format(ref_genome)))
+
+        for c in chroms:
+            valid_bins = get_valid_cols(clr, c, balance)
+            valid_idx = np.where(valid_bins)[0]
+            chromlabel = 'chr'+c.lstrip('chr')
+            gaps[c] = np.zeros(len(clr.bins().fetch(c)), dtype=bool)
+            if chromlabel in ref_gaps:
+                for i in range(len(gaps[c])):
+                    if clr.binsize <= 500000:
+                        if clr.binsize <= 10000:
+                            ref_i = i * clr.binsize // 10000
+                        elif 10000 < clr.binsize <= 50000:
+                            ref_i = i * clr.binsize // 50000
+                        else:
+                            ref_i = i * clr.binsize // 500000
+                        if ref_gaps[chromlabel][ref_i]:
+                            gaps[c][i] = True
+
+                gaps[c][valid_idx] = False
+    else:
+        for c in chroms:
+            gaps[c] = np.zeros(len(clr.bins().fetch(c)), dtype=bool)
+
+    return gaps
     
 @njit
 def distance_normaize_core(sub, exp, x, y, w):

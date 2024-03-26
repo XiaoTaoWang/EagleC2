@@ -47,9 +47,9 @@ def getargs():
                         be reported. The Information includes breakpoint coordinates, probability
                         values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the
                         resolution of the contact matrix from which the SV is originally predicted,
-                        and the finest resolution of the matrix where the SV can be mapped to.
-                        NeoLoopFinder: 6-column format that can be directly used as the NeoLoopFinder
-                        input.''')
+                        the finest resolution of the matrix where the SV can be mapped to, and the
+                        number of bad bins nearby the SV breakpoints. NeoLoopFinder: 6-column format
+                        that can be directly used as the NeoLoopFinder input.''')
     parser.add_argument('--prob-cutoff', default=0.7, type=float, help='''Probability threshold
                         for filtering the original SV calls.''')
     parser.add_argument('--qvalue-cutoff', default=0.01, type=float, help='''Q-value cutoff. We
@@ -61,7 +61,7 @@ def getargs():
                         Only chromatin contacts with the raw interaction frequency equal to or greater
                         than this value will be considered. Tuning up this value may accelerate the program
                         but at the cost of sensitivity.''')
-    parser.add_argument('-k', '--max-dis', default=15, type=int,
+    parser.add_argument('-k', '--max-dis', default=25, type=int,
                         help='''The maximum genomic distance (in the unit of pixels) at which the expected
                         interaction frequency is calculated for determining intra-chromosomal significant
                         interactions. Tuning down this value may accelerate the program but at the cost of
@@ -73,9 +73,6 @@ def getargs():
     parser.add_argument('--less-stringent-filtering', action = 'store_true',
                         help='''When specified, a less-stringent filtering procedure is used instead of
                         the default filtering.''')
-    parser.add_argument('--ignore-chromosome-bound', action = 'store_true',
-                        help='''When specified, candidate pixels that are near the chromosomal boundaries
-                        will be retained for SV prediction.''')
     parser.add_argument('--support-level', default=3, type=int,
                         help='''The number of supporting resolutions. Only chromatin contacts that
                         are determined as significant in at least number of resolutions are considered.
@@ -133,7 +130,6 @@ def run():
                    '# Maximum Genomic Distance = {0}'.format(args.max_dis),
                    '# Minimum Trans-contact Percentile = {0}'.format(args.inter_min_per),
                    '# Use Less-stringent Filtering = {0}'.format(args.less_stringent_filtering),
-                   '# Ignore Chromosome Bounds = {0}'.format(args.ignore_chromosome_bound),
                    '# Support Level = {0}'.format(args.support_level),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
@@ -145,7 +141,7 @@ def run():
 
         import cooler, time, os, tempfile, joblib
         import numpy as np
-        from eaglec.utilities import calculate_expected
+        from eaglec.utilities import calculate_expected, load_gap
         from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate, cross_resolution_support
         from eaglec.extractMatrix import collect_images
         from eaglec.predictCore import load_models, predict, remove_redundant_predictions, refine_predictions
@@ -210,7 +206,7 @@ def run():
                                                     nproc=args.nproc, highres=True)
         
         intra_counts = count_candidates(intra)
-        if intra_counts[1] < 100000:
+        if intra_counts[1] < 50000:
             filtered_intra = intra
             logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
             logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
@@ -232,7 +228,7 @@ def run():
                                                     q_thre=args.qvalue_cutoff, nproc=args.nproc)
         
         inter_counts = count_candidates(inter)
-        if inter_counts[1] < 100000:
+        if inter_counts[1] < 50000:
             filtered_inter = inter
             logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
             logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
@@ -263,16 +259,22 @@ def run():
         logger.info('Done')
 
         logger.info('Fine-map original SV calls at higher resolutions ...')
+        # load gap regions
+        gaps = {}
+        for res in resolutions:
+            clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
+            gaps[res] = load_gap(clr, chroms, ref_genome=args.genome, balance=balance)
+
         SVs = refine_predictions(original_predictions, resolutions, models, args.mcool, balance,
-                                 expected_values, w=15, baseline_prob=0.01)
+                                 expected_values, gaps, w=15, baseline_prob=0.5)
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
             if args.output_format == 'full':
                 out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+',
-                                     'original resolution', 'fine-mapped resolution'])+'\n')
+                                     'original resolution', 'fine-mapped resolution', 'gap info'])+'\n')
             for line in SVs:
-                c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2 = line
+                c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng = line
                 if args.output_format == 'full':
-                    out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\t{11}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2))
+                    out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\t{11}\t{12}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng))
                 else:
                     strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
                     probs = np.r_[[prob1, prob2, prob3, prob4, prob5, prob6]]

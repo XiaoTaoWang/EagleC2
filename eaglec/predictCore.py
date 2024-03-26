@@ -168,8 +168,37 @@ def cluster_SVs(preSVs, r=15000):
     
     return SVs
 
+def check_gaps(SVs, ref_gaps):
+
+    out = []
+    strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
+    for c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2 in SVs:
+        gaps = ref_gaps[res2]
+        b1 = p1 // res2
+        b2 = p2 // res2
+        probs = np.r_[[prob1, prob2, prob3, prob4, prob5, prob6]]
+        idx = np.argmax(probs)
+        strand = strands[idx]
+        gap_x = gap_y = 0
+        if strand == '+-':
+            gap_x = gaps[c1][(b1+1):(b1+6)].sum()
+            gap_y = gaps[c2][(b2-5):b2].sum()
+        elif strand == '++':
+            gap_x = gaps[c1][(b1+1):(b1+6)].sum()
+            gap_y = gaps[c2][(b2+1):(b2+6)].sum()
+        elif strand == '-+':
+            gap_x = gaps[c1][(b1-5):b1].sum()
+            gap_y = gaps[c2][(b2+1):(b2+6)].sum()
+        elif strand == '--':
+            gap_x = gaps[c1][(b1-5):b1].sum()
+            gap_y = gaps[c2][(b2-5):b2].sum()
+        
+        out.append([c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, '{0},{1}'.format(gap_x, gap_y)])
+    
+    return out
+
 def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
-                       w=15, baseline_prob=0.01):
+                       ref_gaps, w=15, baseline_prob=0.1):
 
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
@@ -248,6 +277,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
         by_class[key][(p1, p2)] = {'prob':(max(prob_), sum(prob_)), 'record':line}
     
     SVs = cluster_SVs(by_class, r=1.5*res_ref[-1])
+    SVs = check_gaps(SVs, ref_gaps)
 
     return SVs
     
