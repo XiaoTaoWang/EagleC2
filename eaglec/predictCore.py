@@ -4,7 +4,7 @@ import tensorflow as tf
 from collections import defaultdict
 from sklearn.cluster import dbscan
 from eaglec.extractMatrix import check_sparsity
-from eaglec.utilities import distance_normaize_core, image_normalize
+from eaglec.utilities import distance_normaize_core, image_normalize, get_queue
 
 def load_models(root_folder):
 
@@ -31,11 +31,10 @@ def convert2TF(images, batch_size=256):
 
 def predict(cache_folder, models, prob_cutoff=0.75, batch_size=256):
 
-    queue = glob.glob(os.path.join(cache_folder, 'collect_*.pkl'))
+    queue = get_queue(cache_folder, maxn=100000)
     original_predictions = {}
     SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
-    for q in queue:
-        data = joblib.load(q)
+    for data in queue:
         images = np.r_[[d[0] for d in data]]
         images = convert2TF(images, batch_size)
         coords = [d[1] for d in data]

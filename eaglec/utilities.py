@@ -1,10 +1,26 @@
-import cooler, logging, joblib, os, eaglec
+import cooler, logging, joblib, os, eaglec, glob
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.isotonic import IsotonicRegression
 from numba import njit
 
 log = logging.getLogger(__name__)
+
+def get_queue(cache_folder, maxn=100000):
+
+    files = glob.glob(os.path.join(cache_folder, 'collect.*.pkl'))
+    data_collect = []
+    for f in files:
+        extract = joblib.load(f)
+        for item in extract:
+            data_collect.append(item)
+            if len(data_collect) == maxn:
+                yield data_collect
+                data_collect = []
+    
+    if len(data_collect):
+        yield data_collect
+
 
 def get_valid_cols(clr, c, balance):
 
