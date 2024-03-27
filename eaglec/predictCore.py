@@ -219,14 +219,20 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
             
             uri = os.path.join('{0}::resolutions/{1}'.format(mcool, qr))
             clr = cooler.Cooler(uri)
-            nL = []
-            for line in L:
+
+            images = []
+            coords = []
+            index_count = 0
+            index_map = defaultdict(list)
+            info_map = {}
+            line_map = {}
+            for k, line in enumerate(L):
+                line_map[k] = line
+                info_map[k] = list(line[4:])
+                index_count = len(images)
                 c1, p1, c2, p2 = line[:4]
-                info = list(line[4:])
                 s_l = range((p1-tr)//qr, int(np.ceil((p1+tr*2)/qr)))
                 e_l = range((p2-tr)//qr, int(np.ceil((p2+tr*2)/qr)))
-                images = []
-                coords = []
                 for x in s_l:
                     for y in e_l:
                         if c1 == c2:
@@ -247,21 +253,32 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                         M = image_normalize(M)
                         images.append(M)
                         coords.append((c1, x*qr, c2, y*qr))
-                
-                if len(images):
-                    images = np.r_[images]
-                    images = convert2TF(images, 256)
-                    prob_pool = np.stack([model.predict(images) for model in models])
-                    idx = np.argmax(info[:-2])
-                    prob_mean = prob_pool.mean(axis=0)[:,idx]
-                    best_i = prob_mean.argmax()
-                    if prob_mean[best_i] > baseline_prob:
-                        info[-1] = qr
-                        nL.append(coords[best_i] + tuple(info))
+                        index_map[k].append(index_count)
+                        index_count += 1
+            
+            nL = []
+            if len(images):
+                images = np.r_[images]
+                images = convert2TF(images, 256)
+                prob_pool = np.stack([model.predict(images) for model in models])
+                prob_mean = prob_pool.mean(axis=0)
+                for k in index_map:
+                    coords_tmp = [coords[i_] for i_ in index_map[k]]
+                    if len(coords_tmp):
+                        info = info_map[k]
+                        idx = np.argmax(info[:-2])
+                        prob_tmp = prob_mean[index_map[k]][:,idx]
+                        best_i = prob_tmp.argmax()
+                        if prob_tmp[best_i] > baseline_prob:
+                            info[-1] = qr
+                            nL.append(coords_tmp[best_i] + tuple(info))
+                        else:
+                            sv_list.append(line_map[k])
                     else:
-                        sv_list.append(line)
-                else:
-                    sv_list.append(line)
+                        sv_list.append(line_map[k])
+            else:
+                for k in line_map:
+                    sv_list.append(line_map[k])
             
             tr = qr
             L = nL
