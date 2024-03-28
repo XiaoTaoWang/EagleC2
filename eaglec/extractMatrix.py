@@ -1,4 +1,4 @@
-import joblib, cooler, os, logging
+import cooler, os, logging, joblib
 import numpy as np
 from eaglec.utilities import distance_normaize_core, image_normalize
 from joblib import Parallel, delayed
@@ -57,9 +57,10 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
 
                 data.append((window, (c1, x, c2, y, res)))
             
-            outfil = os.path.join(cachefolder, 'collect.{0}_{1}.{2}.pkl'.format(c1, c2, t))
-            joblib.dump(data, outfil, compress=('xz', 3))
-            count += len(data)
+            if len(data) > 0:
+                count += len(data)
+                outfil = os.path.join(cachefolder, 'collect.{0}_{1}_{2}.{3}.pkl'.format(c1, c2, res, t))
+                joblib.dump(data, outfil, compress=('xz', 3))
     
     return count
 

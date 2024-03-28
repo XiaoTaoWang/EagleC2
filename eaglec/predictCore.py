@@ -288,7 +288,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
     by_class = defaultdict(dict)
     for line in sv_list:
         c1, p1, c2, p2 = line[:4]
-        prob_ = line[4:-1]
+        prob_ = line[4:-2]
         key = (c1, c2)
         by_class[key][(p1, p2)] = {'prob':(max(prob_), sum(prob_)), 'record':line}
     
