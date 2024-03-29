@@ -39,7 +39,11 @@ def select_intra_core(clr, c, Ed, k, q_thre, minv, highres=False):
     qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
     mask = qvalues < q_thre
     x_collect, y_collect = x_collect[mask], y_collect[mask]
-    candi = set(zip(x_collect, y_collect))
+    candi = set()
+    for x, y in zip(x_collect, y_collect):
+        for i in [-1, 0, 1]:
+            for j in [-1, 0, 1]:
+                candi.add((x+i, y+j))
 
     return c, candi
 
@@ -177,9 +181,13 @@ def select_inter_core(clr, c1, c2, windows, min_per, less_stringent, q_thre):
         coords = set(zip(x_collect, y_collect))
         candidates_pool.append(coords)
 
-    candidates = filter_candidates(candidates_pool)
+    candi = set()
+    for x, y in filter_candidates(candidates_pool):
+        for i in [-1, 0, 1]:
+            for j in [-1, 0, 1]:
+                candi.add((x+i, y+j))
 
-    return c1, c2, candidates
+    return c1, c2, candi
 
 def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
                            less_stringent=False, q_thre=0.01, nproc=4):

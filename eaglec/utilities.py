@@ -66,10 +66,10 @@ def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
     res = clr.binsize
     for c in chroms:
         queue.append((clr, c, balance, max_dis))
-    
+
     results = Parallel(n_jobs=nproc)(delayed(calculate_expected_core)(*i) for i in queue)
-    diag_sums = []
-    pixel_nums = []
+    diag_sums = np.zeros(max_dis+1)
+    pixel_nums = np.zeros(max_dis+1)
     for i in range(max_dis+1):
         nume = 0
         denom = 0
@@ -77,8 +77,8 @@ def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
             if i in extract:
                 nume += extract[i][0]
                 denom += extract[i][1]
-        diag_sums.append(nume)
-        pixel_nums.append(denom)
+        diag_sums[i] = nume
+        pixel_nums[i] = denom
     
     Ed = {}
     for i in range(max_dis+1):
@@ -93,9 +93,9 @@ def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
     
     IR = IsotonicRegression(increasing=False, out_of_bounds='clip')
     IR.fit(sorted(Ed), [Ed[i] for i in sorted(Ed)])
-    d = np.arange(max(Ed)+1)
+    d = np.arange(max_dis+1)
     exp_arr = IR.predict(list(d))
-    
+        
     return exp_arr
 
 def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
