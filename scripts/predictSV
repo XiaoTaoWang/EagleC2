@@ -74,10 +74,6 @@ def getargs():
                         help='''The percentile of the minimum inter-chromosomal interaction frequency
                         value. Tuning up this value may accelerate the program but at the cost of
                         sensitivity.''')
-    parser.add_argument('--support-level', default=1, type=int,
-                        help='''The number of supporting resolutions. Only chromatin contacts that
-                        are determined as significant in at least this number of resolutions are considered.
-                        Tuning up this value may accelerate the program but at the cost of sensitivity.''')
     parser.add_argument('-p', '--nproc', default=8, type=int,
                         help='The maximum number of processes to be allocated.')
 
@@ -131,7 +127,6 @@ def run():
                    '# Minimum Cis-contact Strength = {0}'.format(args.intra_min),
                    '# Maximum Genomic Distance = {0}'.format(args.max_dis),
                    '# Minimum Trans-contact Percentile = {0}'.format(args.inter_min_per),
-                   '# Support Level = {0}'.format(args.support_level),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
                    '# Output Format = {0}'.format(args.output_format),
@@ -143,7 +138,7 @@ def run():
         import cooler, time, os, tempfile, joblib
         import numpy as np
         from eaglec.utilities import calculate_expected, load_gap
-        from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate, cross_resolution_support
+        from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate
         from eaglec.extractMatrix import collect_images
         from eaglec.predictCore import load_models, predict, remove_redundant_predictions, refine_predictions
 
@@ -207,15 +202,9 @@ def run():
                                                     nproc=args.nproc, highres=True)
         
         intra_counts = count_candidates(intra)
-        if intra_counts[1] < 50000:
-            filtered_intra = intra
-            logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
-            logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
-        else:
-            filtered_intra = cross_resolution_support(intra, level=args.support_level-1, intra=True)
-            intra_counts = count_candidates(filtered_intra)
-            logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
-            logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
+        filtered_intra = intra
+        logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
+        logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
         
         # inter candidates
         logger.info('Searching for inter-chromosomal candidates ...')
@@ -229,15 +218,9 @@ def run():
                                                     nproc=args.nproc)
         
         inter_counts = count_candidates(inter)
-        if inter_counts[1] < 50000:
-            filtered_inter = inter
-            logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
-            logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
-        else:
-            filtered_inter = cross_resolution_support(inter, level=args.support_level-1, intra=False)
-            inter_counts = count_candidates(filtered_inter)
-            logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
-            logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
+        filtered_inter = inter
+        logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
+        logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
 
         logger.info('The extracted images will be exported to the folder {0}'.format(cache_folder))
         intra_n = collect_images(args.mcool, filtered_intra, expected_values, balance, cache_folder,
