@@ -1,6 +1,6 @@
 import cooler, os, logging, joblib
 import numpy as np
-from eaglec.utilities import distance_normaize_core, image_normalize
+from eaglec.utilities import distance_normaize_core, image_normalize, entropy
 from joblib import Parallel, delayed
 
 log = logging.getLogger(__name__)
@@ -14,7 +14,8 @@ def check_sparsity(M):
     else:
         return True
 
-def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder):
+def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
+                        entropy_cutoff, cachefolder):
 
     uri = '{0}::resolutions/{1}'.format(mcool, res)
     clr = cooler.Cooler(uri)
@@ -53,8 +54,11 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
                 if c1 == c2:
                     window = distance_normaize_core(window, exp, x, y, w)
                 
-                window = image_normalize(window)
+                score1, score2 = entropy(window, 10, 5)
+                if (score1 > entropy_cutoff * 2) and (score2 > entropy_cutoff):
+                    continue
 
+                window = image_normalize(window)
                 data.append((window, (c1, x, c2, y, res)))
             
             if len(data) > 0:
@@ -66,17 +70,18 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
 
 
 def collect_images(mcool, by_res, expected_values, balance, cachefolder,
-                   w=15, nproc=8):
+                   w=15, entropy_cutoff=0.9, nproc=8):
 
     queue = []
     for res in by_res:
         for c1, c2 in by_res[res]:
             if c1 == c2:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values[res], w, cachefolder))
+                              balance, expected_values[res], w, entropy_cutoff,
+                              cachefolder))
             else:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, None, w, cachefolder))
+                              balance, None, w, entropy_cutoff, cachefolder))
     
     results = Parallel(n_jobs=nproc)(delayed(collect_images_core)(*i) for i in queue)
     total_n = 0

@@ -51,17 +51,21 @@ def getargs():
                         number of bad bins nearby the SV breakpoints. NeoLoopFinder: 6-column format
                         that can be directly used as the NeoLoopFinder input.''')
     parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability threshold
-                        for filtering the original SV calls.''')
+                        for filtering the original SV calls. Value Range: (0, 1]''')
     parser.add_argument('--qvalue-cutoff', default=0.1, type=float, help='''Q-value cutoff. We
                         use a significant interaction detection procedure to perform a pre-filtering
-                        before inputing the images to the CNN models. Tuning down this value may
-                        accelerate the program but at the cost of sensitivity.''')
+                        before feeding the images into the CNN models. Tuning down this value may
+                        accelerate the program but at the cost of sensitivity. Value Range: (0, 1]''')
+    parser.add_argument('--entropy-cutoff', default=0.9, type=float, help='''Entropy cutoff.
+                        We utilize a pre-filtering procedure based on Shannon entropy before
+                        feeding the images into the CNN models. Tuning down this cutoff can
+                        greatly accelerate the program but at the cost of sensitivity. Value Range: (0, 1]''')
     parser.add_argument('--intra-min', default=1, type=int,
                         help='''The minimum intra-chromosomal interaction frequency value.
                         Only chromatin contacts with the raw interaction frequency equal to or greater
                         than this value will be considered. Tuning up this value may accelerate the program
                         but at the cost of sensitivity.''')
-    parser.add_argument('-k', '--max-dis', default=25, type=int,
+    parser.add_argument('-k', '--max-dis', default=30, type=int,
                         help='''The maximum genomic distance (in the unit of pixels) at which the expected
                         interaction frequency is calculated for determining intra-chromosomal significant
                         interactions. Tuning down this value may accelerate the program but at the cost of
@@ -123,6 +127,7 @@ def run():
                    '# Included Chromosomes = {0}'.format(args.chroms),
                    '# Probability Cutoff = {0}'.format(args.prob_cutoff),
                    '# Qvalue Cutoff = {0}'.format(args.qvalue_cutoff),
+                   '# Entropy Cutoff = {0}'.format(args.entropy_cutoff),
                    '# Minimum Cis-contact Strength = {0}'.format(args.intra_min),
                    '# Maximum Genomic Distance = {0}'.format(args.max_dis),
                    '# Minimum Trans-contact Percentile = {0}'.format(args.inter_min_per),
@@ -236,9 +241,9 @@ def run():
 
         logger.info('The extracted images will be exported to the folder {0}'.format(cache_folder))
         intra_n = collect_images(args.mcool, filtered_intra, expected_values, balance, cache_folder,
-                                 w=15, nproc=args.nproc)
+                                 w=15, entropy_cutoff=args.entropy_cutoff, nproc=args.nproc)
         inter_n = collect_images(args.mcool, filtered_inter, expected_values, balance, cache_folder,
-                                 w=15, nproc=args.nproc)
+                                 w=15, entropy_cutoff=args.entropy_cutoff, nproc=args.nproc)
         
         logger.info('Totally collected {0} images'.format(intra_n + inter_n))
         logger.info('Predicting SVs at each resolution ...')

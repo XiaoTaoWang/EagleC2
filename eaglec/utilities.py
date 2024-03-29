@@ -164,3 +164,35 @@ def image_normalize(arr_2d):
     arr_2d = (arr_2d - arr_2d.min()) / (arr_2d.max() - arr_2d.min()) # value range: [0,1]
 
     return arr_2d
+
+@njit
+def entropy(M, si, w):
+
+    sub1 = M[si:(si+w), si:(si+w)].sum() # ++
+    sub2 = M[si:(si+w), (si+w+1):(si+2*w+1)].sum() # +-
+    sub3 = M[(si+w+1):(si+2*w+1), si:(si+w)].sum() # -+
+    sub4 = M[(si+w+1):(si+2*w+1), (si+w+1):(si+2*w+1)].sum() # --
+    if sub1 == 0:
+        sub1 = 1e-10
+    if sub2 == 0:
+        sub2 = 1e-10
+    if sub3 == 0:
+        sub3 = 1e-10
+    if sub4 == 0:
+        sub4 = 1e-10
+        
+    total = sub1 + sub2 + sub3 + sub4
+    score1 = 0
+    for sub in [sub1, sub2, sub3, sub4]:
+        p = sub / total
+        score1 += (p * np.log2(p))
+    score1 = -score1
+
+    score2 = 0
+    for sub in [sub1+sub4, sub2+sub3]:
+        p = sub / total
+        score2 += (p * np.log2(p))
+    score2 = -score2
+
+    return score1, score2
+    
