@@ -51,7 +51,7 @@ def select_intra_candidate(clr, chroms, Ed, k=20, q_thre=0.01, minv=1, nproc=4, 
 
     queue = []
     for c in chroms:
-        queue.append((clr, c, Ed, k, q_thre, minv-1, highres))
+        queue.append((clr, c, Ed, k, q_thre, minv, highres))
     
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
     bychrom = {}

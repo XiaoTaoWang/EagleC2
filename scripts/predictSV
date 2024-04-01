@@ -62,10 +62,10 @@ def getargs():
                         greatly accelerate the program but at the cost of sensitivity. Value Range: (0, 1]''')
     parser.add_argument('--intra-min', default=1, type=int,
                         help='''The minimum intra-chromosomal interaction frequency value.
-                        Only chromatin contacts with the raw interaction frequency equal to or greater
-                        than this value will be considered. Tuning up this value may accelerate the program
-                        but at the cost of sensitivity.''')
-    parser.add_argument('-k', '--max-dis', default=30, type=int,
+                        Only chromatin contacts with the raw interaction frequency greater
+                        than this value will be considered. Tuning up this value may accelerate
+                        the program but at the cost of sensitivity.''')
+    parser.add_argument('-k', '--max-dis', default=25, type=int,
                         help='''The maximum genomic distance (in the unit of pixels) at which the expected
                         interaction frequency is calculated for determining intra-chromosomal significant
                         interactions. Tuning down this value may accelerate the program but at the cost of
