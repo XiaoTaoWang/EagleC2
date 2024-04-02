@@ -54,8 +54,8 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
                 if c1 == c2:
                     window = distance_normaize_core(window, exp, x, y, w)
                 
-                score1, score2 = entropy(window, 10, 5)
-                if (score1 > entropy_cutoff * 2) and (score2 > entropy_cutoff):
+                score = entropy(window, 11, 4)
+                if score > entropy_cutoff:
                     continue
 
                 window = image_normalize(window)
