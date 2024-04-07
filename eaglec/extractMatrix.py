@@ -45,7 +45,7 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
             for i in range(txi.size):
                 x = txi[i]
                 y = tyi[i]
-                window = vvv[i]
+                window = vvv[i].astype(exp.dtype)
                 window[np.isnan(window)] = 0
                     
                 if not check_sparsity(window):

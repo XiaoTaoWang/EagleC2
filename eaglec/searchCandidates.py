@@ -1,4 +1,4 @@
-import logging
+import logging, hdbscan
 import numpy as np
 from scipy import stats
 from statsmodels.sandbox.stats.multicomp import multipletests
@@ -6,12 +6,15 @@ from collections import defaultdict
 from joblib import Parallel, delayed
 
 log = logging.getLogger(__name__)
+    
 
-def select_intra_core(clr, c, Ed, k, q_thre, minv, highres=False):
+def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
+                      min_samples=3, top_per=5, top_n=10, buff=2, highres=False):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c).tocsr()
     x, y = M.nonzero()
     v = M.data
+    # step 1: search for significant contacts
     # check for long-range contacts
     evalue = Ed[k]
     dis = y - x
@@ -20,9 +23,9 @@ def select_intra_core(clr, c, Ed, k, q_thre, minv, highres=False):
     else:
         mask = (dis >= k) & (v > minv)
         
-    x_collect, y_collect, v_collect = x[mask], y[mask], v[mask]
+    x, y, v = x[mask], y[mask], v[mask]
     Poiss = stats.poisson(evalue)
-    pvalues = Poiss.sf(v_collect)
+    pvalues = Poiss.sf(v)
     # check for short-range contacts
     idx = np.arange(M.shape[0])
     for i in range(10, k):
@@ -31,27 +34,60 @@ def select_intra_core(clr, c, Ed, k, q_thre, minv, highres=False):
         yi = idx[i:][diag>minv]
         diag = diag[diag>minv]
         if diag.size > 0:
-            x_collect = np.r_[x_collect, xi]
-            y_collect = np.r_[y_collect, yi]
+            x = np.r_[x, xi]
+            y = np.r_[y, yi]
             Poiss = stats.poisson(Ed[i])
             pvalues = np.r_[pvalues, Poiss.sf(diag)]
 
     qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
     mask = qvalues < q_thre
-    x_collect, y_collect = x_collect[mask], y_collect[mask]
+    x, y = x[mask], y[mask]
     candi = set()
-    for x, y in zip(x_collect, y_collect):
-        for i in [-1, 0, 1]:
-            for j in [-1, 0, 1]:
-                candi.add((x+i, y+j))
+    if (min_cluster_size > 0) and (min_samples > 0):
+        # step 2: HDBSCAN clustering
+        coords = np.r_['1,2,0', x, y]
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
+                                    min_samples=min_samples).fit(coords)
+        
+        # step 3: remove outliers and select pixels with the strongest signals within each cluster
+        top_per = top_per / 100
+        for ci in set(clusterer.labels_):
+            if ci == -1:
+                continue # remove outliers
+            mask = clusterer.labels_ == ci
+            x_, y_ = x[mask], y[mask]
+            n = min(top_n, int(np.ceil(x_.size * top_per)))
+            sort_table = []
+            for xi, yi in zip(x_, y_):
+                v = M[xi, yi]
+                d = yi - xi
+                if d + 1 > Ed.size:
+                    v = v / Ed[-1]
+                else:
+                    v = v / Ed[d]
+                sort_table.append((v, xi, yi))
+            
+            sort_table.sort(reverse=True)
+            for _, xi, yi in sort_table[:n]:
+                for i in range(-buff, buff+1):
+                    for j in range(-buff, buff+1):
+                        candi.add((xi+i, yi+j))
+    else:
+        for xi, yi in zip(x, y):
+            for i in range(-buff, buff+1):
+                for j in range(-buff, buff+1):
+                    candi.add((xi+i, yi+j))
 
     return c, candi
 
-def select_intra_candidate(clr, chroms, Ed, k=20, q_thre=0.01, minv=1, nproc=4, highres=False):
+def select_intra_candidate(clr, chroms, Ed, k=100, q_thre=0.01, minv=1,
+                           min_cluster_size=3, min_samples=3, top_per=5,
+                           top_n=10, buff=2, nproc=4, highres=False):
 
     queue = []
     for c in chroms:
-        queue.append((clr, c, Ed, k, q_thre, minv, highres))
+        queue.append((clr, c, Ed, k, q_thre, minv, min_cluster_size,
+                      min_samples, top_per, top_n, buff, highres))
     
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
     bychrom = {}
@@ -83,12 +119,15 @@ def filter_candidates(candidate_pool):
     
     return candidates
 
-def select_inter_core(clr, c1, c2, windows, min_per, less_stringent, q_thre):
+def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
+                      min_cluster_size=3, min_samples=3, top_per=5,
+                      top_n=10, buff=2):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c1, c2)
     x, y = M.nonzero()
     v = M.data
     
+    # step 1: search for significant contacts
     candidates_pool = []
     # all contacts are treated as a single background
     for w in windows:
@@ -118,84 +157,49 @@ def select_inter_core(clr, c1, c2, windows, min_per, less_stringent, q_thre):
 
         candidates_pool.append(coords)
     
-    if not less_stringent:
-        # contacts in each row/column are treated differently
-        global_avg = v.mean()
-        # column
-        M = M.tocsc()
-        indices, indptr = M.indices, M.indptr
-        pvalues = []
-        x_collect = []
-        y_collect = []
-        for i in range(M.shape[1]):
-            col = M[indices[indptr[i]:indptr[i+1]], i].toarray().ravel()
-            if col.size > 10:
-                avg = col.mean()
-            else:
-                avg = global_avg
-
-            Poiss = stats.poisson(avg)
-            tmp_p = Poiss.sf(col)
-            tmp_x = indices[indptr[i]:indptr[i+1]]
-            tmp_y = np.ones_like(tmp_x) * i
-            pvalues.append(tmp_p)
-            x_collect.append(tmp_x)
-            y_collect.append(tmp_y)
-        
-        pvalues = np.concatenate(pvalues)
-        x_collect = np.concatenate(x_collect)
-        y_collect = np.concatenate(y_collect)
-        qvalues = multipletests(pvalues, method='fdr_bh')[1]
-        mask = qvalues < q_thre
-        x_collect, y_collect = x_collect[mask], y_collect[mask]
-        coords = set(zip(x_collect, y_collect))
-        candidates_pool.append(coords)
-
-        # rows
-        M = M.tocsr()
-        indices, indptr = M.indices, M.indptr
-        pvalues = []
-        x_collect = []
-        y_collect = []
-        for i in range(M.shape[0]):
-            row = M[i, indices[indptr[i]:indptr[i+1]]].toarray().ravel()
-            if row.size > 10:
-                avg = row.mean()
-            else:
-                avg = global_avg
-
-            Poiss = stats.poisson(avg)
-            tmp_p = Poiss.sf(row)
-            tmp_y = indices[indptr[i]:indptr[i+1]]
-            tmp_x = np.ones_like(tmp_y) * i
-            pvalues.append(tmp_p)
-            x_collect.append(tmp_x)
-            y_collect.append(tmp_y)
-        
-        pvalues = np.concatenate(pvalues)
-        x_collect = np.concatenate(x_collect)
-        y_collect = np.concatenate(y_collect)
-        qvalues = multipletests(pvalues, method='fdr_bh')[1]
-        mask = qvalues < q_thre
-        x_collect, y_collect = x_collect[mask], y_collect[mask]
-        coords = set(zip(x_collect, y_collect))
-        candidates_pool.append(coords)
-
+    candidates_pool = filter_candidates(candidates_pool)
     candi = set()
-    for x, y in filter_candidates(candidates_pool):
-        for i in [-1, 0, 1]:
-            for j in [-1, 0, 1]:
-                candi.add((x+i, y+j))
-
+    if (min_cluster_size > 0) and (min_samples > 0):
+        # step 2: HDBSCAN clustering
+        coords = np.r_[list(candidates_pool)]
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
+                                    min_samples=min_samples).fit(coords)
+        
+        # step 3: remove outliers and select pixels with the strongest signals within each cluster
+        top_per = top_per / 100
+        for ci in set(clusterer.labels_):
+            if ci == -1:
+                continue # remove outliers
+            mask = clusterer.labels_ == ci
+            x_, y_ = coords[mask].T
+            n = min(top_n, int(np.ceil(x_.size * top_per)))
+            sort_table = []
+            for xi, yi in zip(x_, y_):
+                v = M[xi, yi]
+                sort_table.append((v, xi, yi))
+            
+            sort_table.sort(reverse=True)
+            for _, xi, yi in sort_table[:n]:
+                for i in range(-buff, buff+1):
+                    for j in range(-buff, buff+1):
+                        candi.add((xi+i, yi+j))
+    else:
+        for xi, yi in candidates_pool:
+            for i in range(-buff, buff+1):
+                for j in range(-buff, buff+1):
+                    candi.add((xi+i, yi+j))
+    
     return c1, c2, candi
 
 def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
-                           less_stringent=False, q_thre=0.01, nproc=4):
+                           q_thre=0.01, min_cluster_size=3, min_samples=3,
+                           top_per=5, top_n=10, buff=2, nproc=4):
 
     queue = []
     for i in range(len(chroms)-1):
         for j in range(i+1, len(chroms)):
-            queue.append((clr, chroms[i], chroms[j], windows, min_per, less_stringent, q_thre))
+            queue.append((clr, chroms[i], chroms[j], windows, min_per, q_thre,
+                          min_cluster_size, min_samples, top_per, top_n, buff))
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
