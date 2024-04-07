@@ -4,7 +4,7 @@ import tensorflow as tf
 from collections import defaultdict
 from sklearn.cluster import dbscan
 from eaglec.extractMatrix import check_sparsity
-from eaglec.utilities import distance_normaize_core, image_normalize, get_queue
+from eaglec.utilities import distance_normaize_core, image_normalize, get_queue, dict2list, list2dict
 
 def load_models(root_folder):
 
@@ -29,7 +29,7 @@ def convert2TF(images, batch_size=256):
 
     return images
 
-def predict(cache_folder, models, prob_cutoff=0.75, batch_size=256):
+def predict(cache_folder, models, ref_gaps, prob_cutoff=0.75, max_gap=1, batch_size=256):
 
     queue = get_queue(cache_folder, maxn=100000)
     original_predictions = {}
@@ -57,7 +57,14 @@ def predict(cache_folder, models, prob_cutoff=0.75, batch_size=256):
                 
                 original_predictions[res][sv][(c1, c2)][(p1, p2)] = prob
     
-    return original_predictions
+    original_predictions = remove_redundant_predictions(original_predictions)
+    gap_removed = {}
+    for res in original_predictions:
+        sv_list = dict2list(original_predictions[res])
+        clustered = cluster_SVs(sv_list, r=1.5*res)
+        gap_removed[res] = list2dict(check_gaps(clustered, ref_gaps, max_gap))
+    
+    return gap_removed
 
 def cross_resolution_mapping(by_res):
 
@@ -127,18 +134,14 @@ def remove_redundant_predictions(by_res):
 
     return new
 
-def dict2list(D, res):
+def cluster_SVs(sv_list, r=15000):
 
-    L = []
-    for sv in D:
-        for c1, c2 in D[sv]:
-            for p1, p2 in D[sv][(c1, c2)]:
-                line = (c1, p1*res, c2, p2*res) + tuple(D[sv][(c1, c2)][(p1, p2)]) + (res, res)
-                L.append(line)
-    
-    return L
-
-def cluster_SVs(preSVs, r=15000):
+    preSVs = defaultdict(dict)
+    for line in sv_list:
+        c1, p1, c2, p2 = line[:4]
+        prob_ = line[4:10]
+        key = (c1, c2)
+        preSVs[key][(p1, p2)] = {'prob':(max(prob_), sum(prob_)), 'record':line}
 
     SVs = []
     for chrom in preSVs:
@@ -167,11 +170,11 @@ def cluster_SVs(preSVs, r=15000):
     
     return SVs
 
-def check_gaps(SVs, ref_gaps):
+def check_gaps(sv_list, ref_gaps, max_gap=1):
 
     out = []
     strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
-    for c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2 in SVs:
+    for c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2 in sv_list:
         gaps = ref_gaps[res2]
         b1 = p1 // res2
         b2 = p2 // res2
@@ -192,12 +195,13 @@ def check_gaps(SVs, ref_gaps):
             gap_x = gaps[c1][(b1-5):b1].sum()
             gap_y = gaps[c2][(b2-5):b2].sum()
         
-        out.append([c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, '{0},{1}'.format(gap_x, gap_y)])
+        if (gap_x <= max_gap) and (gap_y <= max_gap):
+            out.append([c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, '{0},{1}'.format(gap_x, gap_y)])
     
     return out
 
 def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
-                       ref_gaps, w=15, baseline_prob=0.1):
+                       ref_gaps, w=15, baseline_prob=0.5):
 
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)

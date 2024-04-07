@@ -6,6 +6,38 @@ from numba import njit
 
 log = logging.getLogger(__name__)
 
+def dict2list(D, res):
+
+    L = []
+    for sv in D:
+        for c1, c2 in D[sv]:
+            for p1, p2 in D[sv][(c1, c2)]:
+                line = (c1, p1*res, c2, p2*res) + tuple(D[sv][(c1, c2)][(p1, p2)]) + (res, res)
+                L.append(line)
+    
+    return L
+
+def list2dict(L, res):
+
+    D = {}
+    SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
+    for line in L:
+        c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6 = line[:10]
+        p1 = p1 // res
+        p2 = p2 // res
+        prob = np.array([prob1, prob2, prob3, prob4, prob5, prob6])
+        maxi = prob.argmax()
+        sv = SV_labels[maxi]
+        if not sv in D:
+            D[sv] = {}
+        
+        if not (c1, c2) in D[sv]:
+            D[sv][(c1, c2)] = {}
+        
+        D[sv][(c1, c2)][(p1, p2)] = prob
+    
+    return D
+
 def get_queue(cache_folder, maxn=100000):
 
     files = glob.glob(os.path.join(cache_folder, 'collect.*.pkl'))

@@ -23,9 +23,10 @@ def getargs():
     parser.add_argument('--mcool', help='''Path to a mcool file containing contact matrices at multiple resolutions''')
     parser.add_argument('--resolutions', default='5000,10000,25000,50000,100000,250000,500000,1000000',
                         help='''Resolutions at which the contact matrices will be used for SV prediction.''')
-    parser.add_argument('--high-res', default='5000',
+    parser.add_argument('--high-res', default='1000,2000',
                         help='''Resolutions that are exclusively used to detect short-range SVs and
-                        fine-map SV calls identified at coarser resolutions.''')
+                        refine SV calls identified at coarser resolutions. If a resolution specified
+                        by this parameter is not included in the "--resolutions" list, it will be skipped.''')
     parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'CNV', 'Raw'],
                         help = '''Normalization method. If you choose ICE, make sure you have run
                         "cooler balance" on your Hi-C matrix before you run this command; If you
@@ -92,13 +93,15 @@ def getargs():
                         help='''The number of units that will be extended along each axis for
                         each candidate pixel. Increasing the value will include more candidate
                         pixels in prediction but may significantly slow down the program.''')
-    parser.add_argument('--entropy-cutoff', default=0.999, type=float, help='''Entropy cutoff.
+    parser.add_argument('--entropy-cutoff', default=0.97, type=float, help='''Entropy cutoff.
                         We utilize a pre-filtering procedure based on Shannon entropy before
                         feeding the images into the CNN models. Tuning down this cutoff can
                         greatly accelerate the program but may reduce sensitivity.
                         Value Range: (0, 1]''')
     parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability cutoff
                         for filtering the original SV calls. Value Range: [0, 1]''')
+    parser.add_argument('--allowed-gaps', default=1, type=int,
+                        help='''The maximum number of gap bins allowed near the SV breakpoints.''')
     parser.add_argument('-p', '--nproc', default=8, type=int,
                         help='The maximum number of processes to be allocated.')
 
@@ -158,6 +161,7 @@ def run():
                    '# Extend Size = {0}'.format(args.extend_size),
                    '# Entropy Cutoff = {0}'.format(args.entropy_cutoff),
                    '# Probability Cutoff = {0}'.format(args.prob_cutoff),
+                   '# Allowed Number of Gap Bins = {0}'.format(args.allowed_gaps),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
                    '# Output Format = {0}'.format(args.output_format),
@@ -171,7 +175,7 @@ def run():
         from eaglec.utilities import calculate_expected, load_gap
         from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate
         from eaglec.extractMatrix import collect_images
-        from eaglec.predictCore import load_models, predict, remove_redundant_predictions, refine_predictions
+        from eaglec.predictCore import load_models, predict, refine_predictions
 
         # read resolutions
         resolutions = [int(r) for r in args.resolutions.split(',')]
@@ -269,18 +273,18 @@ def run():
         logger.info('Totally collected {0} images'.format(intra_n + inter_n))
         logger.info('Predicting SVs at each resolution ...')
         models = load_models(args.model_path)
-        original_predictions = predict(cache_folder, models, prob_cutoff=args.prob_cutoff, batch_size=256)
-        original_predictions = remove_redundant_predictions(original_predictions)
-        joblib.dump(original_predictions, '{0}.pkl'.format(args.output_prefix))
-        logger.info('Done')
-
-        logger.info('Fine-map original SV calls at higher resolutions ...')
         # load gap regions
         gaps = {}
         for res in resolutions:
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             gaps[res] = load_gap(clr, chroms, ref_genome=args.genome, balance=balance)
 
+        original_predictions = predict(cache_folder, models, gaps, prob_cutoff=args.prob_cutoff,
+                                       max_gap=args.allowed_gaps, batch_size=256)
+        joblib.dump(original_predictions, '{0}.pkl'.format(args.output_prefix))
+        logger.info('Done')
+
+        logger.info('Fine-map original SV calls at higher resolutions ...')
         SVs = refine_predictions(original_predictions, resolutions, models, args.mcool, balance,
                                  expected_values, gaps, w=15, baseline_prob=0.5)
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:

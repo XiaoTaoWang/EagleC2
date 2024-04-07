@@ -43,7 +43,7 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
     mask = qvalues < q_thre
     x, y = x[mask], y[mask]
     candi = set()
-    if (min_cluster_size > 0) and (min_samples > 0):
+    if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
         # step 2: HDBSCAN clustering
         coords = np.r_['1,2,0', x, y]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
@@ -123,7 +123,7 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
                       min_cluster_size=3, min_samples=3, top_per=5,
                       top_n=10, buff=2):
 
-    M = clr.matrix(balance=False, sparse=True).fetch(c1, c2)
+    M = clr.matrix(balance=False, sparse=True).fetch(c1, c2).tocsr()
     x, y = M.nonzero()
     v = M.data
     
@@ -159,7 +159,7 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
     
     candidates_pool = filter_candidates(candidates_pool)
     candi = set()
-    if (min_cluster_size > 0) and (min_samples > 0):
+    if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         # step 2: HDBSCAN clustering
         coords = np.r_[list(candidates_pool)]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
