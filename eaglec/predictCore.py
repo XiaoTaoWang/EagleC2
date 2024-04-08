@@ -60,9 +60,9 @@ def predict(cache_folder, models, ref_gaps, prob_cutoff=0.75, max_gap=1, batch_s
     original_predictions = remove_redundant_predictions(original_predictions)
     gap_removed = {}
     for res in original_predictions:
-        sv_list = dict2list(original_predictions[res])
+        sv_list = dict2list(original_predictions[res], res)
         clustered = cluster_SVs(sv_list, r=1.5*res)
-        gap_removed[res] = list2dict(check_gaps(clustered, ref_gaps, max_gap))
+        gap_removed[res] = list2dict(check_gaps(clustered, ref_gaps, max_gap), res)
     
     return gap_removed
 
@@ -78,8 +78,8 @@ def cross_resolution_mapping(by_res):
             mappable[(qr, tr)] = {}
             for sv in by_res[tr]:
                 if sv in by_res[qr]:
-                    mappable[(tr, qr)][sv] = defaultdict(set)
-                    mappable[(qr, tr)][sv] = defaultdict(set)
+                    mappable[(tr, qr)][sv] = defaultdict(dict)
+                    mappable[(qr, tr)][sv] = defaultdict(dict)
                     for k in by_res[tr][sv]:
                         if k in by_res[qr][sv]:
                             for tx, ty in by_res[tr][sv][k]:
@@ -88,8 +88,10 @@ def cross_resolution_mapping(by_res):
                                 for x in s_l:
                                     for y in e_l:
                                         if (x, y) in by_res[qr][sv][k]:
-                                            mappable[(tr, qr)][sv][k].add((tx, ty))
-                                            mappable[(qr, tr)][sv][k].add((x, y))
+                                            # the value records probability at finer resolutions
+                                            mappable[(tr, qr)][sv][k][(tx, ty)] = by_res[qr][sv][k][(x, y)]
+                                            # the value records probability at coarser resolutions
+                                            mappable[(qr, tr)][sv][k][(x, y)] = by_res[tr][sv][k][(tx, ty)]
     
     return mappable
 
@@ -131,7 +133,32 @@ def remove_redundant_predictions(by_res):
                         new[tr][sv][k][(tx, ty)] = by_res[tr][sv][k][(tx, ty)]
     
     new[resolutions[-1]] = by_res[resolutions[-1]]
+    '''
+    # records the highest probability score across resolutions
+    SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
+    for tr in new:
+        for sv in new[tr]:
+            for k in new[tr][sv]:
+                for tx, ty in new[tr][sv][k]:
+                    sort_table = [(new[tr][sv][k][(tx, ty)].max(), tuple(new[tr][sv][k][(tx, ty)]))]
+                    for pair in mapping_table:
+                        if pair[0] != tr:
+                            continue
+                        if not sv in mapping_table[pair]:
+                            continue
+                        if not k in mapping_table[pair][sv]:
+                            continue
+                        if (tx, ty) in mapping_table[pair][sv][k]:
+                            sort_table.append((mapping_table[pair][sv][k][(tx, ty)].max(), tuple(mapping_table[pair][sv][k][(tx, ty)])))
 
+                    sort_table.sort(reverse=True)
+                    for item in sort_table:
+                        prob = np.r_[item[1]]
+                        maxi = prob.argmax()
+                        if SV_labels[maxi] == sv:
+                            new[tr][sv][k][(tx, ty)] = prob
+                            break
+    '''
     return new
 
 def cluster_SVs(sv_list, r=15000):
@@ -170,7 +197,7 @@ def cluster_SVs(sv_list, r=15000):
     
     return SVs
 
-def check_gaps(sv_list, ref_gaps, max_gap=1):
+def check_gaps(sv_list, ref_gaps, max_gap=2):
 
     out = []
     strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
@@ -195,13 +222,13 @@ def check_gaps(sv_list, ref_gaps, max_gap=1):
             gap_x = gaps[c1][(b1-5):b1].sum()
             gap_y = gaps[c2][(b2-5):b2].sum()
         
-        if (gap_x <= max_gap) and (gap_y <= max_gap):
+        if gap_x + gap_y <= max_gap:
             out.append([c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, '{0},{1}'.format(gap_x, gap_y)])
     
     return out
 
 def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
-                       ref_gaps, w=15, baseline_prob=0.5):
+                       ref_gaps, max_gap=2, w=15, baseline_prob=0.5):
 
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
@@ -289,15 +316,8 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
         
         sv_list.extend(L)
     
-    by_class = defaultdict(dict)
-    for line in sv_list:
-        c1, p1, c2, p2 = line[:4]
-        prob_ = line[4:-2]
-        key = (c1, c2)
-        by_class[key][(p1, p2)] = {'prob':(max(prob_), sum(prob_)), 'record':line}
-    
-    SVs = cluster_SVs(by_class, r=1.5*res_ref[-1])
-    SVs = check_gaps(SVs, ref_gaps)
+    SVs = cluster_SVs(sv_list, r=1.5*res_ref[-1])
+    SVs = check_gaps(SVs, ref_gaps, max_gap)
 
     return SVs
     

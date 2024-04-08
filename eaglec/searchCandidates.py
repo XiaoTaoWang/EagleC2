@@ -6,15 +6,14 @@ from collections import defaultdict
 from joblib import Parallel, delayed
 
 log = logging.getLogger(__name__)
-    
 
 def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
-                      min_samples=3, top_per=5, top_n=10, buff=2, highres=False):
+                      min_samples=3, shrink_per=15, top_per=10, top_n=10, buff=2,
+                      highres=False):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c).tocsr()
     x, y = M.nonzero()
     v = M.data
-    # step 1: search for significant contacts
     # check for long-range contacts
     evalue = Ed[k]
     dis = y - x
@@ -42,15 +41,48 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
     qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
     mask = qvalues < q_thre
     x, y = x[mask], y[mask]
+
     candi = set()
+    top_per = top_per / 100
+    max_cluster_size = 100 # hard-coded param
+    cut_ratio = shrink_per / 100
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
-        # step 2: HDBSCAN clustering
+        # first round of clustering
         coords = np.r_['1,2,0', x, y]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
         
-        # step 3: remove outliers and select pixels with the strongest signals within each cluster
-        top_per = top_per / 100
+        nx = []
+        ny = []
+        for ci in set(clusterer.labels_):
+            mask = clusterer.labels_ == ci
+            x_, y_ = x[mask], y[mask]
+            if (ci == -1) or (x_.size < max_cluster_size):
+                nx.extend(list(x_))
+                ny.extend(list(y_))
+            else:
+                n = int(np.ceil(x_.size * cut_ratio))
+                sort_table = []
+                for xi, yi in zip(x_, y_):
+                    v = M[xi, yi]
+                    d = yi - xi
+                    if d + 1 > Ed.size:
+                        v = v / Ed[-1]
+                    else:
+                        v = v / Ed[d]
+                    sort_table.append((v, xi, yi))
+                
+                sort_table.sort(reverse=True)
+                for _, xi, yi in sort_table[:n]:
+                    nx.append(xi)
+                    ny.append(yi)
+        
+        # second round of clustering
+        x = np.r_[nx]
+        y = np.r_[ny]
+        coords = np.r_['1,2,0', x, y]
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
+                                    min_samples=min_samples).fit(coords)
         for ci in set(clusterer.labels_):
             if ci == -1:
                 continue # remove outliers
@@ -81,13 +113,14 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
     return c, candi
 
 def select_intra_candidate(clr, chroms, Ed, k=100, q_thre=0.01, minv=1,
-                           min_cluster_size=3, min_samples=3, top_per=5,
-                           top_n=10, buff=2, nproc=4, highres=False):
+                           min_cluster_size=3, min_samples=3, shrink_per=15,
+                           top_per=10, top_n=10, buff=2, nproc=4, highres=False):
 
     queue = []
     for c in chroms:
         queue.append((clr, c, Ed, k, q_thre, minv, min_cluster_size,
-                      min_samples, top_per, top_n, buff, highres))
+                      min_samples, shrink_per, top_per, top_n, buff,
+                      highres))
     
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
     bychrom = {}
@@ -120,14 +153,13 @@ def filter_candidates(candidate_pool):
     return candidates
 
 def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
-                      min_cluster_size=3, min_samples=3, top_per=5,
-                      top_n=10, buff=2):
+                      min_cluster_size=3, min_samples=3, shrink_per=15,
+                      top_per=10, top_n=10, buff=2):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c1, c2).tocsr()
     x, y = M.nonzero()
     v = M.data
     
-    # step 1: search for significant contacts
     candidates_pool = []
     # all contacts are treated as a single background
     for w in windows:
@@ -159,19 +191,46 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
     
     candidates_pool = filter_candidates(candidates_pool)
     candi = set()
+    top_per = top_per / 100
+    max_cluster_size = 100 # hard-coded param
+    cut_ratio = shrink_per / 100
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
-        # step 2: HDBSCAN clustering
+        # first round of clustering
         coords = np.r_[list(candidates_pool)]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
+        nx = []
+        ny = []
+        for ci in set(clusterer.labels_):
+            mask = clusterer.labels_ == ci
+            x_, y_ = coords[mask].T
+            if (ci == -1) or (x_.size < max_cluster_size):
+                nx.extend(list(x_))
+                ny.extend(list(y_))
+            else:
+                n = int(np.ceil(x_.size * cut_ratio))
+                sort_table = []
+                for xi, yi in zip(x_, y_):
+                    v = M[xi, yi]
+                    sort_table.append((v, xi, yi))
+                
+                sort_table.sort(reverse=True)
+                for _, xi, yi in sort_table[:n]:
+                    nx.append(xi)
+                    ny.append(yi)
         
-        # step 3: remove outliers and select pixels with the strongest signals within each cluster
-        top_per = top_per / 100
+        # second round of clustering
+        x = np.r_[nx]
+        y = np.r_[ny]
+        coords = np.r_['1,2,0', x, y]
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
+                                    min_samples=min_samples).fit(coords)
+        
         for ci in set(clusterer.labels_):
             if ci == -1:
                 continue # remove outliers
             mask = clusterer.labels_ == ci
-            x_, y_ = coords[mask].T
+            x_, y_ = x[mask], y[mask]
             n = min(top_n, int(np.ceil(x_.size * top_per)))
             sort_table = []
             for xi, yi in zip(x_, y_):
@@ -193,13 +252,14 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
 
 def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
                            q_thre=0.01, min_cluster_size=3, min_samples=3,
-                           top_per=5, top_n=10, buff=2, nproc=4):
+                           shrink_per=15, top_per=10, top_n=10, buff=2, nproc=4):
 
     queue = []
     for i in range(len(chroms)-1):
         for j in range(i+1, len(chroms)):
             queue.append((clr, chroms[i], chroms[j], windows, min_per, q_thre,
-                          min_cluster_size, min_samples, top_per, top_n, buff))
+                          min_cluster_size, min_samples, shrink_per, top_per,
+                          top_n, buff))
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
