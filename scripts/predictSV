@@ -50,11 +50,11 @@ def getargs():
                         the finest resolution of the matrix where the SV can be mapped to, and the
                         number of bad bins nearby the SV breakpoints. NeoLoopFinder: 6-column format
                         that can be directly used as the NeoLoopFinder input.''')
-    parser.add_argument('--intra-qvalue-cutoff', default=0.01, type=float, help='''Q-value cutoff
+    parser.add_argument('--intra-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
                         for pre-filtering intra-chromosomal pixels before feeding images into the
                         CNN models. Lowering this value can speed up the program but may reduce
                         sensitivity. Value Range: (0, 1]''')
-    parser.add_argument('--inter-qvalue-cutoff', default=0.01, type=float, help='''Q-value cutoff
+    parser.add_argument('--inter-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
                         for pre-filtering inter-chromosomal pixels before feeding images into the
                         CNN models. Lowering this value can speed up the program but may reduce
                         sensitivity. Value Range: (0, 1]''')
@@ -83,12 +83,12 @@ def getargs():
                         help='''Percentile of pixels with the most enriched signals to retain
                         within each cluster identified by the initial round of HDBSCAN clustering.
                         Value Range: (0, 100]''')
-    parser.add_argument('--top-per', default=10, type=float,
+    parser.add_argument('--top-per', default=15, type=float,
                         help='''Percentile of pixels with the most enriched signals that will be
                         considered for CNN prediction within each cluster identified by the second
                         round of HDBSCAN. Decreasing the value may accelerate the program but could
                         reduce sensitivity. Value Range: [0, 100]''')
-    parser.add_argument('--top-n', default=10, type=int,
+    parser.add_argument('--top-n', default=15, type=int,
                         help='''The number of pixels with the most enriched signals that will be
                         considered for CNN prediction within each cluster identified by the second
                         round of HDBSCAN. Decreasing the value may accelerate the program but could
@@ -287,7 +287,6 @@ def run():
 
         original_predictions = predict(cache_folder, models, gaps, prob_cutoff=args.prob_cutoff,
                                        max_gap=args.allowed_gaps, batch_size=256)
-        joblib.dump(original_predictions, '{0}.pkl'.format(args.output_prefix))
         logger.info('Done')
 
         logger.info('Fine-map original SV calls at higher resolutions ...')

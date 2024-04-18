@@ -2,10 +2,43 @@ import logging, hdbscan
 import numpy as np
 from scipy import stats
 from statsmodels.sandbox.stats.multicomp import multipletests
-from collections import defaultdict
+from collections import defaultdict, Counter
 from joblib import Parallel, delayed
 
 log = logging.getLogger(__name__)
+
+def concensus_clustering(coords, min_cluster_sizes=[3,4,5]):
+
+    label_pool = []
+    for mcs in min_cluster_sizes:
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=mcs,
+                                    min_samples=mcs).fit(coords)
+        label_pool.append(clusterer.labels_)
+    
+    for i in range(1, len(label_pool)):
+        si = label_pool[i-1].max() + 1
+        tmp_labels = label_pool[i]
+        tmp_labels[tmp_labels>=0] += si
+        label_pool[i] = tmp_labels
+    
+    label_pool = np.r_[label_pool]
+    label_count = Counter(label_pool.ravel())
+    labels_ = []
+    for i in range(label_pool.shape[1]):
+        table = []
+        tmp = label_pool[:,i]
+        for t in tmp:
+            if t == -1:
+                table.append((1, t))
+            else:
+                table.append((label_count[t], t))
+        table.sort(reverse=True)
+        labels_.append(table[0][1])
+    
+    labels_ = np.r_[labels_]
+    
+    return labels_
+
 
 def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
                       min_samples=3, shrink_per=15, top_per=10, top_n=10, buff=2,
@@ -51,7 +84,6 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
         coords = np.r_['1,2,0', x, y]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
-        
         nx = []
         ny = []
         for ci in set(clusterer.labels_):
@@ -98,12 +130,13 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
                 else:
                     v = v / Ed[d]
                 sort_table.append((v, xi, yi))
-            
+
             sort_table.sort(reverse=True)
             for _, xi, yi in sort_table[:n]:
                 for i in range(-buff, buff+1):
                     for j in range(-buff, buff+1):
                         candi.add((xi+i, yi+j))
+            
     else:
         for xi, yi in zip(x, y):
             for i in range(-buff, buff+1):
@@ -225,7 +258,6 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
         coords = np.r_['1,2,0', x, y]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
-        
         for ci in set(clusterer.labels_):
             if ci == -1:
                 continue # remove outliers
