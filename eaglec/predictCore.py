@@ -279,7 +279,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                             continue
 
                         if c1 == c2:
-                            M = distance_normaize_core(M, exp[qr], x, y, w)
+                            M = distance_normaize_core(M, exp[qr][c1], x, y, w)
                         
                         M = image_normalize(M)
                         images.append(M)

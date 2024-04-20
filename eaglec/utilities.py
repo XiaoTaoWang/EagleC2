@@ -89,46 +89,60 @@ def calculate_expected_core(clr, c, balance, max_dis):
         if diag.size > 0:
             expected[i] = [diag.sum(), diag.size]
     
-    return expected
+    return c, expected
 
 def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
-                       N=20, dynamic_window_size=10):
+                       N=50, dynamic_window_size=2):
 
-    queue = []
     res = clr.binsize
+    queue = []
+    diag_sums = {}
+    pixel_nums = {}
     for c in chroms:
         queue.append((clr, c, balance, max_dis))
+        diag_sums[c] = np.zeros(max_dis+1)
+        pixel_nums[c] = np.zeros(max_dis+1)
+    diag_sums['genome'] = np.zeros(max_dis+1)
+    pixel_nums['genome'] = np.zeros(max_dis+1)
 
     results = Parallel(n_jobs=nproc)(delayed(calculate_expected_core)(*i) for i in queue)
-    diag_sums = np.zeros(max_dis+1)
-    pixel_nums = np.zeros(max_dis+1)
     for i in range(max_dis+1):
-        nume = 0
+        nume = 0 # genome-wide aggregation
         denom = 0
-        for extract in results:
+        for c, extract in results:
             if i in extract:
                 nume += extract[i][0]
                 denom += extract[i][1]
-        diag_sums[i] = nume
-        pixel_nums[i] = denom
+                diag_sums[c][i] = extract[i][0]
+                pixel_nums[c][i] = extract[i][1]
+        diag_sums['genome'][i] = nume
+        pixel_nums['genome'][i] = denom
     
     Ed = {}
-    for i in range(max_dis+1):
-        for w in range(dynamic_window_size+1):
-            tmp_sums = diag_sums[max(i-w,0):i+w+1]
-            tmp_nums = pixel_nums[max(i-w,0):i+w+1]
-            n_count = sum(tmp_sums)
-            n_pixel = sum(tmp_nums)
-            if n_pixel > N:
-                Ed[i] = n_count / n_pixel
-                break
+    for c in diag_sums:
+        tmp = {}
+        for i in range(max_dis+1):
+            for w in range(dynamic_window_size+1):
+                tmp_sums = diag_sums[c][max(i-w,0):i+w+1]
+                tmp_nums = pixel_nums[c][max(i-w,0):i+w+1]
+                n_count = sum(tmp_sums)
+                n_pixel = sum(tmp_nums)
+                if n_pixel > N:
+                    tmp[i] = n_count / n_pixel
+                    break
+        Ed[c] = tmp
     
-    IR = IsotonicRegression(increasing=False, out_of_bounds='clip')
-    IR.fit(sorted(Ed), [Ed[i] for i in sorted(Ed)])
-    d = np.arange(max_dis+1)
-    exp_arr = IR.predict(list(d))
+    exp_bychrom = {}
+    for c in Ed:
+        if len(Ed[c]) < len(Ed['genome'])*0.9:
+            Ed[c] = Ed['genome'] 
+    
+        IR = IsotonicRegression(increasing=False, out_of_bounds='clip')
+        IR.fit(sorted(Ed[c]), [Ed[c][i] for i in sorted(Ed[c])])
+        d = np.arange(max_dis+1)
+        exp_bychrom[c] = IR.predict(list(d))
         
-    return exp_arr
+    return exp_bychrom
 
 def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
 

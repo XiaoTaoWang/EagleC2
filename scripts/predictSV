@@ -79,7 +79,7 @@ def getargs():
                         help='''The number of samples in a neighbourhood for a point to be considered
                         a core point. The value will be directly passed to the HDBSCAN clustering
                         algorithm. Setting it to 0 will disable the HDBSCAN clustering.''')
-    parser.add_argument('--shrink-per', default=15, type=float,
+    parser.add_argument('--shrink-per', default=30, type=float,
                         help='''Percentile of pixels with the most enriched signals to retain
                         within each cluster identified by the initial round of HDBSCAN clustering.
                         Value Range: (0, 100]''')
@@ -212,20 +212,14 @@ def run():
         
         # expected values
         expected_values = {}
-        expected_values_raw = {}
         logger.info('Calculating the expected values ...')
         for res in resolutions:
             logger.info('Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
-            if not balance:
-                expected_values_raw = expected_values
-            else:
-                expected_values_raw[res] = calculate_expected(clr, chroms, False, max_bins, nproc=args.nproc)
-        
+            
         joblib.dump(expected_values, os.path.join(cache_folder, 'expected_values.pkl'))
-        joblib.dump(expected_values_raw, os.path.join(cache_folder, 'expected_values_raw.pkl'))
 
         # intra candidates
         logger.info('Searching for intra-chromosomal candidates ...')
@@ -235,7 +229,7 @@ def run():
             logger.info('Resolution {0}'.format(res))
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             if not res in high_res:
-                tmp = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
+                tmp = select_intra_candidate(clr, chroms, balance, expected_values[res], k=args.max_dis,
                                              q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
                                              min_cluster_size=args.min_cluster_size,
                                              min_samples=args.min_samples, shrink_per=args.shrink_per,
@@ -244,7 +238,7 @@ def run():
                 intra[res] = tmp[0]
                 intra_bad[res] = tmp[1]
             else:
-                tmp = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
+                tmp = select_intra_candidate(clr, chroms, balance, expected_values[res], k=args.max_dis,
                                              q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
                                              min_cluster_size=args.min_cluster_size,
                                              min_samples=args.min_samples, shrink_per=args.shrink_per,
@@ -268,7 +262,7 @@ def run():
             if not res in high_res:
                 clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
                 logger.info('Resolution {0}'.format(res))
-                tmp = select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=args.inter_min_per,
+                tmp = select_inter_candidate(clr, chroms, balance, windows=[3,4,5], min_per=args.inter_min_per,
                                              q_thre=args.inter_qvalue_cutoff, min_cluster_size=args.min_cluster_size,
                                              min_samples=args.min_samples, shrink_per=args.shrink_per, top_per=args.top_per,
                                              top_n=args.top_n, buff=args.extend_size, nproc=args.nproc)

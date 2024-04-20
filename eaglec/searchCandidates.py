@@ -7,16 +7,26 @@ from collections import defaultdict
 
 log = logging.getLogger(__name__)
 
+def _remove_real_outliers(x, y, buff=1):
 
-def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
-                      min_samples=3, shrink_per=15, top_per=10, top_n=10, buff=2,
+    pool = set(zip(x, y))
+    filtered = set()
+    for xi, yi in pool:
+        for i in range(-buff, buff+1):
+            for j in range(-buff, buff+1):
+                if (xi+i, yi+j) in pool:
+                    filtered.add((xi, yi))
+    
+    return filtered
+
+def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
+                      min_samples=3, shrink_per=30, top_per=10, top_n=10, buff=2,
                       highres=False):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c).tocsr()
     x, y = M.nonzero()
     v = M.data
     # check for long-range contacts
-    evalue = Ed[k]
     dis = y - x
     if highres:
         mask = (dis >= k) & (dis <= Ed.size//4) & (v > minv)
@@ -24,8 +34,26 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
         mask = (dis >= k) & (v > minv)
         
     x, y, v = x[mask], y[mask], v[mask]
-    Poiss = stats.poisson(evalue)
-    pvalues = Poiss.sf(v)
+    evalue = Ed[k]
+    if balance:
+        weights = clr.bins().fetch(c)[balance].values
+        b1 = weights[x]
+        b2 = weights[y]
+        evalue = evalue / (b1 * b2)
+        mask = np.isfinite(evalue)
+        evalue = evalue[mask]
+        x = x[mask]
+        y = y[mask]
+        v = v[mask]
+        if evalue.size > 0:
+            Poiss = stats.poisson(evalue)
+            pvalues = Poiss.sf(v)
+        else:
+            pvalues = np.array([], dtype=float)
+    else:
+        Poiss = stats.poisson(evalue)
+        pvalues = Poiss.sf(v)
+
     # check for short-range contacts
     idx = np.arange(M.shape[0])
     for i in range(10, k):
@@ -34,14 +62,33 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
         yi = idx[i:][diag>minv]
         diag = diag[diag>minv]
         if diag.size > 0:
-            x = np.r_[x, xi]
-            y = np.r_[y, yi]
-            Poiss = stats.poisson(Ed[i])
-            pvalues = np.r_[pvalues, Poiss.sf(diag)]
+            if not balance:
+                x = np.r_[x, xi]
+                y = np.r_[y, yi]
+                Poiss = stats.poisson(Ed[i])
+                pvalues = np.r_[pvalues, Poiss.sf(diag)]
+            else:
+                b1 = weights[xi]
+                b2 = weights[yi]
+                evalue = Ed[i] / (b1 * b2)
+                mask = np.isfinite(evalue)
+                evalue = evalue[mask]
+                xi = xi[mask]
+                yi = yi[mask]
+                diag = diag[mask]
+                if diag.size > 0:
+                    x = np.r_[x, xi]
+                    y = np.r_[y, yi]
+                    Poiss = stats.poisson(evalue)
+                    pvalues = np.r_[pvalues, Poiss.sf(diag)]
 
     qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
+    
     mask = qvalues < q_thre
     x, y = x[mask], y[mask]
+
+    if balance:
+        M = clr.matrix(balance=balance, sparse=True).fetch(c).tocsr()
 
     candi = set()
     bad_pixels = set()
@@ -52,6 +99,7 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
     filter_top_n = 15 # hard-coded param
     filter_min_cluster_size = 20 # hard-coded param
     cut_ratio = shrink_per / 100
+    buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
         # first round of clustering
         coords = np.r_['1,2,0', x, y]
@@ -70,6 +118,8 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
                 sort_table = []
                 for xi, yi in zip(x_, y_):
                     v = M[xi, yi]
+                    if np.isnan(v):
+                        continue
                     d = yi - xi
                     if d + 1 > Ed.size:
                         v = v / Ed[-1]
@@ -89,14 +139,21 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
         for ci in set(clusterer.labels_):
-            if ci == -1:
-                continue # remove outliers
             mask = clusterer.labels_ == ci
             x_, y_ = x[mask], y[mask]
+            if ci == -1:
+                tmp = _remove_real_outliers(x_, y_)
+                for xi, yi in tmp:
+                    for i in range(-buf, buf+1):
+                        for j in range(-buf, buf+1):
+                            candi.add((xi+i, yi+j))
+            
             n = min(top_n, int(np.ceil(x_.size * top_per)))
             sort_table = []
             for xi, yi in zip(x_, y_):
                 v = M[xi, yi]
+                if np.isnan(v):
+                    continue
                 d = yi - xi
                 if d + 1 > Ed.size:
                     v = v / Ed[-1]
@@ -119,21 +176,21 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
                             bad_pixels.add((xi+i, yi+j))
     else:
         for xi, yi in zip(x, y):
-            for i in range(-buff, buff+1):
-                for j in range(-buff, buff+1):
+            for i in range(-buf, buf+1):
+                for j in range(-buf, buf+1):
                     candi.add((xi+i, yi+j))
     
     bad_pixels = bad_pixels - candi
 
     return c, candi, bad_pixels
 
-def select_intra_candidate(clr, chroms, Ed, k=100, q_thre=0.01, minv=1,
+def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, shrink_per=15,
                            top_per=10, top_n=10, buff=2, nproc=4, highres=False):
 
     queue = []
     for c in chroms:
-        queue.append((clr, c, Ed, k, q_thre, minv, min_cluster_size,
+        queue.append((clr, c, balance, Ed[c], k, q_thre, minv, min_cluster_size,
                       min_samples, shrink_per, top_per, top_n, buff,
                       highres))
     
@@ -169,7 +226,7 @@ def filter_candidates(candidate_pool):
     
     return candidates
 
-def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
+def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                       min_cluster_size=3, min_samples=3, shrink_per=15,
                       top_per=10, top_n=10, buff=2):
 
@@ -207,6 +264,10 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
         candidates_pool.append(coords)
     
     candidates_pool = filter_candidates(candidates_pool)
+
+    if balance:
+        M = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
+
     candi = set()
     bad_pixels = set()
     top_per = top_per / 100
@@ -216,6 +277,7 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
     filter_top_n = 15 # hard-coded param
     filter_min_cluster_size = 20 # hard-coded param
     cut_ratio = shrink_per / 100
+    buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         # first round of clustering
         coords = np.r_[list(candidates_pool)]
@@ -234,6 +296,8 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
                 sort_table = []
                 for xi, yi in zip(x_, y_):
                     v = M[xi, yi]
+                    if np.isnan(v):
+                        continue
                     sort_table.append((v, xi, yi))
                 
                 sort_table.sort(reverse=True)
@@ -248,14 +312,21 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
         for ci in set(clusterer.labels_):
-            if ci == -1:
-                continue # remove outliers
             mask = clusterer.labels_ == ci
             x_, y_ = x[mask], y[mask]
+            if ci == -1:
+                tmp = _remove_real_outliers(x_, y_)
+                for xi, yi in tmp:
+                    for i in range(-buf, buf+1):
+                        for j in range(-buf, buf+1):
+                            candi.add((xi+i, yi+j))
+
             n = min(top_n, int(np.ceil(x_.size * top_per)))
             sort_table = []
             for xi, yi in zip(x_, y_):
                 v = M[xi, yi]
+                if np.isnan(v):
+                    continue
                 sort_table.append((v, xi, yi))
             
             sort_table.sort(reverse=True)
@@ -273,24 +344,24 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
                             bad_pixels.add((xi+i, yi+j))
     else:
         for xi, yi in candidates_pool:
-            for i in range(-buff, buff+1):
-                for j in range(-buff, buff+1):
+            for i in range(-buf, buf+1):
+                for j in range(-buf, buf+1):
                     candi.add((xi+i, yi+j))
     
     bad_pixels = bad_pixels - candi
     
     return c1, c2, candi, bad_pixels
 
-def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
+def select_inter_candidate(clr, chroms, balance, windows=[3,4,5], min_per=50,
                            q_thre=0.01, min_cluster_size=3, min_samples=3,
                            shrink_per=15, top_per=10, top_n=10, buff=2, nproc=4):
 
     queue = []
     for i in range(len(chroms)-1):
         for j in range(i+1, len(chroms)):
-            queue.append((clr, chroms[i], chroms[j], windows, min_per, q_thre,
-                          min_cluster_size, min_samples, shrink_per, top_per,
-                          top_n, buff))
+            queue.append((clr, chroms[i], chroms[j], balance, windows, min_per,
+                          q_thre, min_cluster_size, min_samples, shrink_per,
+                          top_per, top_n, buff))
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}

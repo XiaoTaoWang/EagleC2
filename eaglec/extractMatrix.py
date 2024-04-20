@@ -77,11 +77,11 @@ def collect_images(mcool, by_res, expected_values, balance, cachefolder,
         for c1, c2 in by_res[res]:
             if c1 == c2:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values[res], w, entropy_cutoff,
+                              balance, expected_values[res][c1], w, entropy_cutoff,
                               cachefolder))
             else:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values[res], w, entropy_cutoff, cachefolder))
+                              balance, expected_values[res][c1], w, entropy_cutoff, cachefolder))
     
     results = Parallel(n_jobs=nproc)(delayed(collect_images_core)(*i) for i in queue)
     total_n = 0
