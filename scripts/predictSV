@@ -83,12 +83,12 @@ def getargs():
                         help='''Percentile of pixels with the most enriched signals to retain
                         within each cluster identified by the initial round of HDBSCAN clustering.
                         Value Range: (0, 100]''')
-    parser.add_argument('--top-per', default=15, type=float,
+    parser.add_argument('--top-per', default=10, type=float,
                         help='''Percentile of pixels with the most enriched signals that will be
                         considered for CNN prediction within each cluster identified by the second
                         round of HDBSCAN. Decreasing the value may accelerate the program but could
                         reduce sensitivity. Value Range: [0, 100]''')
-    parser.add_argument('--top-n', default=15, type=int,
+    parser.add_argument('--top-n', default=10, type=int,
                         help='''The number of pixels with the most enriched signals that will be
                         considered for CNN prediction within each cluster identified by the second
                         round of HDBSCAN. Decreasing the value may accelerate the program but could
@@ -179,7 +179,7 @@ def run():
         import cooler, time, os, tempfile, joblib
         import numpy as np
         from eaglec.utilities import calculate_expected, load_gap
-        from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate
+        from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate, cross_resolution_filter
         from eaglec.extractMatrix import collect_images
         from eaglec.predictCore import load_models, predict, refine_predictions
 
@@ -230,44 +230,56 @@ def run():
         # intra candidates
         logger.info('Searching for intra-chromosomal candidates ...')
         intra = {}
+        intra_bad = {}
         for res in resolutions:
             logger.info('Resolution {0}'.format(res))
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             if not res in high_res:
-                intra[res] = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
-                                                    q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
-                                                    min_cluster_size=args.min_cluster_size,
-                                                    min_samples=args.min_samples, shrink_per=args.shrink_per,
-                                                    top_per=args.top_per, top_n=args.top_n, buff=args.extend_size,
-                                                    nproc=args.nproc, highres=False)
+                tmp = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
+                                             q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
+                                             min_cluster_size=args.min_cluster_size,
+                                             min_samples=args.min_samples, shrink_per=args.shrink_per,
+                                             top_per=args.top_per, top_n=args.top_n, buff=args.extend_size,
+                                             nproc=args.nproc, highres=False)
+                intra[res] = tmp[0]
+                intra_bad[res] = tmp[1]
             else:
-                intra[res] = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
-                                                    q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
-                                                    min_cluster_size=args.min_cluster_size,
-                                                    min_samples=args.min_samples, shrink_per=args.shrink_per,
-                                                    top_per=args.top_per, top_n=args.top_n, buff=args.extend_size,
-                                                    nproc=args.nproc, highres=True)
+                tmp = select_intra_candidate(clr, chroms, expected_values_raw[res], k=args.max_dis,
+                                             q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
+                                             min_cluster_size=args.min_cluster_size,
+                                             min_samples=args.min_samples, shrink_per=args.shrink_per,
+                                             top_per=args.top_per, top_n=args.top_n, buff=args.extend_size,
+                                             nproc=args.nproc, highres=True)
+                intra[res] = tmp[0]
+                intra_bad[res] = tmp[1]
         
         intra_counts = count_candidates(intra)
-        filtered_intra = intra
         logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
+        filtered_intra = cross_resolution_filter(intra, intra_bad, min_dis=50)
+        intra_counts = count_candidates(filtered_intra)
+        logger.info('{0} intra-chromosomal candidates are retained after filtering'.format(intra_counts[1]))
         logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
         
         # inter candidates
         logger.info('Searching for inter-chromosomal candidates ...')
         inter = {}
+        inter_bad = {}
         for res in resolutions:
             if not res in high_res:
                 clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
                 logger.info('Resolution {0}'.format(res))
-                inter[res] = select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=args.inter_min_per,
-                                                    q_thre=args.inter_qvalue_cutoff, min_cluster_size=args.min_cluster_size,
-                                                    min_samples=args.min_samples, shrink_per=args.shrink_per, top_per=args.top_per,
-                                                    top_n=args.top_n, buff=args.extend_size, nproc=args.nproc)
+                tmp = select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=args.inter_min_per,
+                                             q_thre=args.inter_qvalue_cutoff, min_cluster_size=args.min_cluster_size,
+                                             min_samples=args.min_samples, shrink_per=args.shrink_per, top_per=args.top_per,
+                                             top_n=args.top_n, buff=args.extend_size, nproc=args.nproc)
+                inter[res] = tmp[0]
+                inter_bad[res] = tmp[1]
         
         inter_counts = count_candidates(inter)
-        filtered_inter = inter
         logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
+        filtered_inter = cross_resolution_filter(inter, inter_bad, min_dis=50)
+        inter_counts = count_candidates(filtered_inter)
+        logger.info('{0} inter-chromosomal candidates are retained after filtering'.format(inter_counts[1]))
         logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
 
         logger.info('The extracted images will be exported to the folder {0}'.format(cache_folder))

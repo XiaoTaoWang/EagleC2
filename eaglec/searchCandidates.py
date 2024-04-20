@@ -2,42 +2,10 @@ import logging, hdbscan
 import numpy as np
 from scipy import stats
 from statsmodels.sandbox.stats.multicomp import multipletests
-from collections import defaultdict, Counter
 from joblib import Parallel, delayed
+from collections import defaultdict
 
 log = logging.getLogger(__name__)
-
-def concensus_clustering(coords, min_cluster_sizes=[3,4,5]):
-
-    label_pool = []
-    for mcs in min_cluster_sizes:
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=mcs,
-                                    min_samples=mcs).fit(coords)
-        label_pool.append(clusterer.labels_)
-    
-    for i in range(1, len(label_pool)):
-        si = label_pool[i-1].max() + 1
-        tmp_labels = label_pool[i]
-        tmp_labels[tmp_labels>=0] += si
-        label_pool[i] = tmp_labels
-    
-    label_pool = np.r_[label_pool]
-    label_count = Counter(label_pool.ravel())
-    labels_ = []
-    for i in range(label_pool.shape[1]):
-        table = []
-        tmp = label_pool[:,i]
-        for t in tmp:
-            if t == -1:
-                table.append((1, t))
-            else:
-                table.append((label_count[t], t))
-        table.sort(reverse=True)
-        labels_.append(table[0][1])
-    
-    labels_ = np.r_[labels_]
-    
-    return labels_
 
 
 def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
@@ -76,8 +44,13 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
     x, y = x[mask], y[mask]
 
     candi = set()
+    bad_pixels = set()
     top_per = top_per / 100
     max_cluster_size = 100 # hard-coded param
+    filter_min_width = 5 # hard-coded param
+    filter_top_per = 0.15 # hard-coded param
+    filter_top_n = 15 # hard-coded param
+    filter_min_cluster_size = 20 # hard-coded param
     cut_ratio = shrink_per / 100
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
         # first round of clustering
@@ -137,13 +110,22 @@ def select_intra_core(clr, c, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3
                     for j in range(-buff, buff+1):
                         candi.add((xi+i, yi+j))
             
+            if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+               (x_.size > filter_min_cluster_size):
+                fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
+                for _, xi, yi in sort_table[fn:]:
+                    for i in range(-buff, buff+1):
+                        for j in range(-buff, buff+1):
+                            bad_pixels.add((xi+i, yi+j))
     else:
         for xi, yi in zip(x, y):
             for i in range(-buff, buff+1):
                 for j in range(-buff, buff+1):
                     candi.add((xi+i, yi+j))
+    
+    bad_pixels = bad_pixels - candi
 
-    return c, candi
+    return c, candi, bad_pixels
 
 def select_intra_candidate(clr, chroms, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, shrink_per=15,
@@ -157,11 +139,13 @@ def select_intra_candidate(clr, chroms, Ed, k=100, q_thre=0.01, minv=1,
     
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
     bychrom = {}
-    for c, candi in results:
+    bychrom_bad = {}
+    for c, candi, bad_pixels in results:
         if len(candi):
             bychrom[(c, c)] = candi
+            bychrom_bad[(c, c)] = bad_pixels
     
-    return bychrom
+    return bychrom, bychrom_bad
 
 def generage_bin_edges(axis_size, w):
 
@@ -224,8 +208,13 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
     
     candidates_pool = filter_candidates(candidates_pool)
     candi = set()
+    bad_pixels = set()
     top_per = top_per / 100
     max_cluster_size = 100 # hard-coded param
+    filter_min_width = 5 # hard-coded param
+    filter_top_per = 0.15 # hard-coded param
+    filter_top_n = 15 # hard-coded param
+    filter_min_cluster_size = 20 # hard-coded param
     cut_ratio = shrink_per / 100
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         # first round of clustering
@@ -274,13 +263,23 @@ def select_inter_core(clr, c1, c2, windows, min_per, q_thre=0.01,
                 for i in range(-buff, buff+1):
                     for j in range(-buff, buff+1):
                         candi.add((xi+i, yi+j))
+            
+            if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+               (x_.size > filter_min_cluster_size):
+                fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
+                for _, xi, yi in sort_table[fn:]:
+                    for i in range(-buff, buff+1):
+                        for j in range(-buff, buff+1):
+                            bad_pixels.add((xi+i, yi+j))
     else:
         for xi, yi in candidates_pool:
             for i in range(-buff, buff+1):
                 for j in range(-buff, buff+1):
                     candi.add((xi+i, yi+j))
     
-    return c1, c2, candi
+    bad_pixels = bad_pixels - candi
+    
+    return c1, c2, candi, bad_pixels
 
 def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
                            q_thre=0.01, min_cluster_size=3, min_samples=3,
@@ -295,83 +294,36 @@ def select_inter_candidate(clr, chroms, windows=[3,4,5], min_per=50,
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
-    for c1, c2, candi in results:
+    bychrom_bad = {}
+    for c1, c2, candi, bad_pixels in results:
         if len(candi):
             bychrom[(c1, c2)] = candi
+            bychrom_bad[(c1, c2)] = bad_pixels
     
-    return bychrom
+    return bychrom, bychrom_bad
 
-def cross_resolution_mapping(by_res):
+def cross_resolution_filter(byres, byres_bad, min_dis=50):
 
-    mappable = {}
-    resolutions = sorted(by_res)
-    for i in range(len(resolutions)-1):
-        for j in range(i+1, len(resolutions)):
-            tr = resolutions[i]
-            qr = resolutions[j]
-            mappable[(tr, qr)] = defaultdict(set)
-            mappable[(qr, tr)] = defaultdict(set)
-            for k in by_res[tr]:
-                if k in by_res[qr]:
-                    for tx, ty in by_res[tr][k]:
-                        s_l = range(tx*tr//qr, int(np.ceil((tx+1)*tr/qr)))
-                        e_l = range(ty*tr//qr, int(np.ceil((ty+1)*tr/qr)))
-                        for x in s_l:
-                            for y in e_l:
-                                if (x, y) in by_res[qr][k]:
-                                    mappable[(tr, qr)][k].add((tx, ty))
-                                    mappable[(qr, tr)][k].add((x, y))
-    
-    return mappable
-
-def cross_resolution_support(by_res, level=2, intra=True):
-
-    mapping_table = cross_resolution_mapping(by_res)
     new = {}
-    for tr in sorted(by_res):
+    for tr in byres:
         new[tr] = defaultdict(set)
-        for k in by_res[tr]:
-            for tx, ty in by_res[tr][k]:
-                valid = 0
-                support = []
-                if not intra:
-                    for qr in by_res:
-                        if qr == tr:
-                            continue
-
-                        valid += 1
-                        if not k in mapping_table[(tr, qr)]:
-                            support.append(False)
-                        else:
-                            if (tx, ty) in mapping_table[(tr, qr)][k]:
-                                support.append(True)
-                            else:
-                                support.append(False)
+        for c in byres[tr]:
+            for tx, ty in byres[tr][c]:
+                if (c[0] == c[1]) and (ty - tx < min_dis):
+                    new[tr][c].add((tx, ty))
                 else:
-                    for qr in by_res:
-                        if qr == tr:
-                            continue
-
-                        dis = (ty - tx) * tr
-                        if dis < 10 * qr:
-                            continue
-
-                        valid += 1
-                        if not k in mapping_table[(tr, qr)]:
-                            support.append(False)
-                        else:
-                            if (tx, ty) in mapping_table[(tr, qr)][k]:
-                                support.append(True)
-                            else:
-                                support.append(False)
-                
-                if valid == 0:
-                    new[tr][k].add((tx, ty))
-                elif valid <= level:
-                    if sum(support) == valid:
-                        new[tr][k].add((tx, ty))
-                else:
-                    if sum(support) >= level:
-                        new[tr][k].add((tx, ty))
+                    valid = True
+                    for qr in byres_bad:
+                        if (qr > tr) and (c in byres_bad[qr]):
+                            s_l = range(tx*tr//qr, int(np.ceil((tx+1)*tr/qr)))
+                            e_l = range(ty*tr//qr, int(np.ceil((ty+1)*tr/qr)))
+                            for qx in s_l:
+                                for qy in e_l:
+                                    if (qx, qy) in byres_bad[qr][c]:
+                                        valid = False
+                                        break
+                    
+                    if valid:
+                        new[tr][c].add((tx, ty))
     
     return new
