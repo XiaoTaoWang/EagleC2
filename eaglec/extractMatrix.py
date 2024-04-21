@@ -23,21 +23,22 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
 
     coords = np.r_[list(coords)]
     xi, yi = coords[:,0], coords[:,1]
+    # full window
     # chromosome boundary check
-    mask = (xi - w >= 0) & (xi + w + 1 <= Matrix.shape[0]) & \
-           (yi - w >= 0) & (yi + w + 1 <= Matrix.shape[1])
-    xi, yi = xi[mask], yi[mask]
+    mask_full = (xi - w >= 0) & (xi + w + 1 <= Matrix.shape[0]) & \
+                (yi - w >= 0) & (yi + w + 1 <= Matrix.shape[1])
+    x_full, y_full = xi[mask_full], yi[mask_full]
 
     batch_size = 10000
     count = 0
     # extract and normalize submatrices surrounding the input coordinates
-    if xi.size > 0:
+    if x_full.size > 0:
         seed = np.arange(-w, w+1)
         delta = np.tile(seed, (seed.size, 1))
-        for t in range(0, xi.size, batch_size):
+        for t in range(0, x_full.size, batch_size):
             data = []
-            txi = xi[t:t+batch_size]
-            tyi = yi[t:t+batch_size]
+            txi = x_full[t:t+batch_size]
+            tyi = y_full[t:t+batch_size]
             xxx = txi.reshape((txi.size, 1, 1)) + delta.T
             yyy = tyi.reshape((tyi.size, 1, 1)) + delta
             v = np.array(Matrix[xxx.ravel(), yyy.ravel()]).ravel()
@@ -47,7 +48,7 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
                 y = tyi[i]
                 window = vvv[i].astype(exp.dtype)
                 window[np.isnan(window)] = 0
-                    
+                
                 if not check_sparsity(window):
                     continue
                 
@@ -63,7 +64,52 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
             
             if len(data) > 0:
                 count += len(data)
-                outfil = os.path.join(cachefolder, 'collect.{0}_{1}_{2}.{3}.pkl'.format(c1, c2, res, t))
+                outfil = os.path.join(cachefolder, 'collect_full.{0}_{1}_{2}.{3}.pkl'.format(c1, c2, res, t))
+                joblib.dump(data, outfil, compress=('xz', 3))
+    
+    # half window, in case the breakpoints are located near the chromosome boundary
+    w = w // 2
+    xi = xi[np.logical_not(mask_full)]
+    yi = yi[np.logical_not(mask_full)]
+    mask_half = (xi - w >= 0) & (xi + w + 1 <= Matrix.shape[0]) & \
+                (yi - w >= 0) & (yi + w + 1 <= Matrix.shape[1])
+    x_half, y_half = xi[mask_half], yi[mask_half]
+    if x_half.size > 0:
+        seed = np.arange(-w, w+1)
+        delta = np.tile(seed, (seed.size, 1))
+        for t in range(0, x_half.size, batch_size):
+            data = []
+            txi = x_half[t:t+batch_size]
+            tyi = y_half[t:t+batch_size]
+            xxx = txi.reshape((txi.size, 1, 1)) + delta.T
+            yyy = tyi.reshape((tyi.size, 1, 1)) + delta
+            v = np.array(Matrix[xxx.ravel(), yyy.ravel()]).ravel()
+            vvv = v.reshape((txi.size, seed.size, seed.size))
+            for i in range(txi.size):
+                x = txi[i]
+                y = tyi[i]
+                window = vvv[i].astype(exp.dtype)
+                window[np.isnan(window)] = 0
+
+                nonzero = window[window.nonzero()]   
+                if nonzero.size < 10:
+                    continue
+                
+                if c1 == c2:
+                    window = distance_normaize_core(window, exp, x, y, w)
+                
+                score = entropy(window, 3, 4)
+                if score > entropy_cutoff:
+                    continue
+
+                window = image_normalize(window)
+                window_full = np.random.random((31, 31)) * window[window>0].min()
+                window_full[8:23, 8:23] = window
+                data.append((window_full, (c1, x, c2, y, res)))
+            
+            if len(data) > 0:
+                count += len(data)
+                outfil = os.path.join(cachefolder, 'collect_half.{0}_{1}_{2}.{3}.pkl'.format(c1, c2, res, t))
                 joblib.dump(data, outfil, compress=('xz', 3))
     
     return count

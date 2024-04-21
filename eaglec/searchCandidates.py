@@ -19,6 +19,22 @@ def _remove_real_outliers(x, y, buff=1):
     
     return filtered
 
+def check_neighbor_signals(M, x, y):
+
+    signals = []
+    shifts = [(1, 0), (0, 1), (-1, 0), (0, -1),
+              (1, 1), (1, -1), (-1, 1), (-1, -1)]
+    for i, j in shifts:
+        xi = x + i
+        yi = y + j
+        if (xi >= 0) and (xi < M.shape[0]) and (yi >= 0) and (yi < M.shape[1]):
+            v = M[xi, yi]
+            if np.isnan(v):
+                continue
+            signals.append(v)
+    
+    return signals
+
 def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
                       min_samples=3, shrink_per=30, top_per=10, top_n=10, buff=2,
                       highres=False):
@@ -147,33 +163,40 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
                     for i in range(-buf, buf+1):
                         for j in range(-buf, buf+1):
                             candi.add((xi+i, yi+j))
-            
-            n = min(top_n, int(np.ceil(x_.size * top_per)))
-            sort_table = []
-            for xi, yi in zip(x_, y_):
-                v = M[xi, yi]
-                if np.isnan(v):
-                    continue
-                d = yi - xi
-                if d + 1 > Ed.size:
-                    v = v / Ed[-1]
+                continue
+            else:
+                if x_.size < top_n:
+                    for xi, yi in zip(x_, y_):
+                        for i in range(-buff, buff+1):
+                            for j in range(-buff, buff+1):
+                                candi.add((xi+i, yi+j))
                 else:
-                    v = v / Ed[d]
-                sort_table.append((v, xi, yi))
+                    n = min(top_n, int(np.ceil(x_.size * top_per)))
+                    sort_table = []
+                    for xi, yi in zip(x_, y_):
+                        v = M[xi, yi]
+                        if np.isnan(v):
+                            continue
+                        d = yi - xi
+                        if d + 1 > Ed.size:
+                            v = v / Ed[-1]
+                        else:
+                            v = v / Ed[d]
+                        sort_table.append((v, xi, yi))
 
-            sort_table.sort(reverse=True)
-            for _, xi, yi in sort_table[:n]:
-                for i in range(-buff, buff+1):
-                    for j in range(-buff, buff+1):
-                        candi.add((xi+i, yi+j))
-            
-            if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-               (x_.size > filter_min_cluster_size):
-                fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
-                for _, xi, yi in sort_table[fn:]:
-                    for i in range(-buff, buff+1):
-                        for j in range(-buff, buff+1):
-                            bad_pixels.add((xi+i, yi+j))
+                    sort_table.sort(reverse=True)
+                    for _, xi, yi in sort_table[:n]:
+                        for i in range(-buff, buff+1):
+                            for j in range(-buff, buff+1):
+                                candi.add((xi+i, yi+j))
+                    
+                    if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+                       (x_.size > filter_min_cluster_size):
+                        fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
+                        for _, xi, yi in sort_table[fn:]:
+                            for i in range(-buff, buff+1):
+                                for j in range(-buff, buff+1):
+                                    bad_pixels.add((xi+i, yi+j))
     else:
         for xi, yi in zip(x, y):
             for i in range(-buf, buf+1):
@@ -182,7 +205,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     
     bad_pixels = bad_pixels - candi
 
-    return c, candi, bad_pixels
+    return c, candi, coords, clusterer
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, shrink_per=15,
@@ -320,28 +343,35 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                     for i in range(-buf, buf+1):
                         for j in range(-buf, buf+1):
                             candi.add((xi+i, yi+j))
-
-            n = min(top_n, int(np.ceil(x_.size * top_per)))
-            sort_table = []
-            for xi, yi in zip(x_, y_):
-                v = M[xi, yi]
-                if np.isnan(v):
-                    continue
-                sort_table.append((v, xi, yi))
-            
-            sort_table.sort(reverse=True)
-            for _, xi, yi in sort_table[:n]:
-                for i in range(-buff, buff+1):
-                    for j in range(-buff, buff+1):
-                        candi.add((xi+i, yi+j))
-            
-            if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-               (x_.size > filter_min_cluster_size):
-                fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
-                for _, xi, yi in sort_table[fn:]:
-                    for i in range(-buff, buff+1):
-                        for j in range(-buff, buff+1):
-                            bad_pixels.add((xi+i, yi+j))
+                continue
+            else:
+                if x_.size < top_n:
+                    for xi, yi in zip(x_, y_):
+                        for i in range(-buff, buff+1):
+                            for j in range(-buff, buff+1):
+                                candi.add((xi+i, yi+j))
+                else:
+                    n = min(top_n, int(np.ceil(x_.size * top_per)))
+                    sort_table = []
+                    for xi, yi in zip(x_, y_):
+                        v = M[xi, yi]
+                        if np.isnan(v):
+                            continue
+                        sort_table.append((v, xi, yi))
+                    
+                    sort_table.sort(reverse=True)
+                    for _, xi, yi in sort_table[:n]:
+                        for i in range(-buff, buff+1):
+                            for j in range(-buff, buff+1):
+                                candi.add((xi+i, yi+j))
+                    
+                    if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+                       (x_.size > filter_min_cluster_size):
+                        fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
+                        for _, xi, yi in sort_table[fn:]:
+                            for i in range(-buff, buff+1):
+                                for j in range(-buff, buff+1):
+                                    bad_pixels.add((xi+i, yi+j))
     else:
         for xi, yi in candidates_pool:
             for i in range(-buf, buf+1):

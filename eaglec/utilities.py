@@ -40,7 +40,7 @@ def list2dict(L, res):
 
 def get_queue(cache_folder, maxn=100000):
 
-    files = glob.glob(os.path.join(cache_folder, 'collect.*.pkl'))
+    files = glob.glob(os.path.join(cache_folder, 'collect*.pkl'))
     data_collect = []
     for f in files:
         extract = joblib.load(f)
