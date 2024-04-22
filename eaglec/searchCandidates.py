@@ -110,10 +110,10 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     bad_pixels = set()
     top_per = top_per / 100
     max_cluster_size = 100 # hard-coded param
-    filter_min_width = 5 # hard-coded param
+    filter_min_width = 6 # hard-coded param
     filter_top_per = 0.15 # hard-coded param
     filter_top_n = 15 # hard-coded param
-    filter_min_cluster_size = 20 # hard-coded param
+    filter_min_cluster_size = 25 # hard-coded param
     cut_ratio = shrink_per / 100
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
@@ -205,7 +205,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     
     bad_pixels = bad_pixels - candi
 
-    return c, candi, coords, clusterer
+    return c, candi, bad_pixels
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, shrink_per=15,
@@ -295,10 +295,10 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
     bad_pixels = set()
     top_per = top_per / 100
     max_cluster_size = 100 # hard-coded param
-    filter_min_width = 5 # hard-coded param
+    filter_min_width = 6 # hard-coded param
     filter_top_per = 0.15 # hard-coded param
     filter_top_n = 15 # hard-coded param
-    filter_min_cluster_size = 20 # hard-coded param
+    filter_min_cluster_size = 25 # hard-coded param
     cut_ratio = shrink_per / 100
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
@@ -420,6 +420,8 @@ def cross_resolution_filter(byres, byres_bad, min_dis=50):
                             e_l = range(ty*tr//qr, int(np.ceil((ty+1)*tr/qr)))
                             for qx in s_l:
                                 for qy in e_l:
+                                    if (c[0] == c[1]) and (qy - qx < min_dis):
+                                        continue
                                     if (qx, qy) in byres_bad[qr][c]:
                                         valid = False
                                         break

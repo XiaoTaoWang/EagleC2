@@ -79,7 +79,7 @@ def getargs():
                         help='''The number of samples in a neighbourhood for a point to be considered
                         a core point. The value will be directly passed to the HDBSCAN clustering
                         algorithm. Setting it to 0 will disable the HDBSCAN clustering.''')
-    parser.add_argument('--shrink-per', default=30, type=float,
+    parser.add_argument('--shrink-per', default=20, type=float,
                         help='''Percentile of pixels with the most enriched signals to retain
                         within each cluster identified by the initial round of HDBSCAN clustering.
                         Value Range: (0, 100]''')

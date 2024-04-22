@@ -271,7 +271,11 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                                 continue
 
                         interval1 = (c1, x*qr-qr*w, x*qr+qr*w+qr)
+                        if (interval1[1] < 0) or (interval1[2] >= clr.chromsizes[c1]):
+                            continue # boundary check
                         interval2 = (c2, y*qr-qr*w, y*qr+qr*w+qr)
+                        if (interval2[1] < 0) or (interval2[2] >= clr.chromsizes[c2]):
+                            continue
                         M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
                         M[np.isnan(M)] = 0
 
