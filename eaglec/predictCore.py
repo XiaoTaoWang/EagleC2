@@ -302,10 +302,11 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                     if len(coords_tmp):
                         info = info_map[k]
                         idx = np.argmax(info[:-2])
-                        prob_tmp = prob_mean[index_map[k]][:,idx]
-                        best_i = prob_tmp.argmax()
-                        if prob_tmp[best_i] > baseline_prob:
+                        prob_tmp = prob_mean[index_map[k]]
+                        best_i = prob_tmp[:,idx].argmax()
+                        if prob_tmp[best_i][idx] > baseline_prob:
                             info[-1] = qr
+                            info[:-2] = list(prob_tmp[best_i])
                             nL.append(coords_tmp[best_i] + tuple(info))
                         else:
                             sv_list.append(line_map[k])

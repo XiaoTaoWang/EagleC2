@@ -4,39 +4,73 @@ from scipy import stats
 from statsmodels.sandbox.stats.multicomp import multipletests
 from joblib import Parallel, delayed
 from collections import defaultdict
+from eaglec.utilities import local_background
 
 log = logging.getLogger(__name__)
 
-def _remove_real_outliers(x, y, buff=1):
+def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, w=4):
 
-    pool = set(zip(x, y))
-    filtered = set()
-    for xi, yi in pool:
-        for i in range(-buff, buff+1):
-            for j in range(-buff, buff+1):
-                if (xi+i, yi+j) in pool:
-                    filtered.add((xi, yi))
-    
-    return filtered
+    mask = (x - w >= 0) & (x + w + 1 <= M.shape[0]) & \
+           (y - w >= 0) & (y + w + 1 <= M.shape[1])
+    x, y = x[mask], y[mask]
+    x_filtered = []
+    y_filtered = []
+    if x.size > 0:
+        seed = np.arange(-w, w+1)
+        delta = np.tile(seed, (seed.size, 1))
+        xxx = x.reshape((x.size, 1, 1)) + delta.T
+        yyy = y.reshape((y.size, 1, 1)) + delta
+        v = np.array(nM[xxx.ravel(), yyy.ravel()]).ravel()
+        vvv = v.reshape((x.size, seed.size, seed.size))
+        for i in range(x.size):
+            xi = x[i]
+            yi = y[i]
+            window = vvv[i].astype(exp.dtype)
+            window[np.isnan(window)] = 0
 
-def check_neighbor_signals(M, x, y):
-
-    signals = []
-    shifts = [(1, 0), (0, 1), (-1, 0), (0, -1),
-              (1, 1), (1, -1), (-1, 1), (-1, -1)]
-    for i, j in shifts:
-        xi = x + i
-        yi = y + j
-        if (xi >= 0) and (xi < M.shape[0]) and (yi >= 0) and (yi < M.shape[1]):
-            v = M[xi, yi]
-            if np.isnan(v):
+            nonzero = window.nonzero()[0]
+            if nonzero.size / window.size < 0.1:
                 continue
-            signals.append(v)
-    
-    return signals
 
-def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=3,
-                      min_samples=3, shrink_per=30, top_per=10, top_n=10, buff=2,
+            E_ = local_background(window, exp, xi, yi, w)
+            if not weights is None:
+                evalue = E_ / (weights[xi] * weights[yi])
+            else:
+                evalue = E_
+            
+            Poiss = stats.poisson(evalue)
+            pvalue = Poiss.sf(M[xi, yi])
+            if pvalue < thre:
+                x_filtered.append(xi)
+                y_filtered.append(yi)
+    
+    x_filtered = np.r_[x_filtered]
+    y_filtered = np.r_[y_filtered]
+    
+    return x_filtered, y_filtered
+
+def filter_intra_cluster_points(M, nM, weights, exp, x, y):
+    
+    D = y - x
+    D = np.abs(D)
+    if D.max() >= exp.size:
+        E_ = nM[x, y].mean()
+    else:
+        Ed = exp[y-x]
+        E_ = nM[x, y].sum() / Ed.sum() * Ed
+
+    if not weights is None:
+        evalues = E_ / (weights[x] * weights[y])
+    else:
+        evalues = E_
+    
+    Poiss = stats.poisson(evalues)
+    pvalues = Poiss.sf(np.array(M[x, y]).ravel())
+
+    return pvalues
+
+def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=4,
+                      min_samples=4, shrink_per=30, top_per=10, top_n=10, buff=2,
                       highres=False):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c).tocsr()
@@ -52,6 +86,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     x, y, v = x[mask], y[mask], v[mask]
     evalue = Ed[k]
     if balance:
+        nM = clr.matrix(balance=balance, sparse=True).fetch(c).tocsr()
         weights = clr.bins().fetch(c)[balance].values
         b1 = weights[x]
         b2 = weights[y]
@@ -67,6 +102,8 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
         else:
             pvalues = np.array([], dtype=float)
     else:
+        nM = M
+        weights = None
         Poiss = stats.poisson(evalue)
         pvalues = Poiss.sf(v)
 
@@ -99,104 +136,41 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
                     pvalues = np.r_[pvalues, Poiss.sf(diag)]
 
     qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
-    
     mask = qvalues < q_thre
     x, y = x[mask], y[mask]
 
-    if balance:
-        M = clr.matrix(balance=balance, sparse=True).fetch(c).tocsr()
-
     candi = set()
     bad_pixels = set()
-    top_per = top_per / 100
-    max_cluster_size = 100 # hard-coded param
     filter_min_width = 6 # hard-coded param
-    filter_top_per = 0.15 # hard-coded param
-    filter_top_n = 15 # hard-coded param
-    filter_min_cluster_size = 25 # hard-coded param
-    cut_ratio = shrink_per / 100
+    filter_min_cluster_size = 30 # hard-coded param
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
         # first round of clustering
         coords = np.r_['1,2,0', x, y]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
-        nx = []
-        ny = []
         for ci in set(clusterer.labels_):
             mask = clusterer.labels_ == ci
             x_, y_ = x[mask], y[mask]
-            if (ci == -1) or (x_.size < max_cluster_size):
-                nx.extend(list(x_))
-                ny.extend(list(y_))
-            else:
-                n = int(np.ceil(x_.size * cut_ratio))
-                sort_table = []
-                for xi, yi in zip(x_, y_):
-                    v = M[xi, yi]
-                    if np.isnan(v):
-                        continue
-                    d = yi - xi
-                    if d + 1 > Ed.size:
-                        v = v / Ed[-1]
-                    else:
-                        v = v / Ed[d]
-                    sort_table.append((v, xi, yi))
-                
-                sort_table.sort(reverse=True)
-                for _, xi, yi in sort_table[:n]:
-                    nx.append(xi)
-                    ny.append(yi)
-        
-        # second round of clustering
-        x = np.r_[nx]
-        y = np.r_[ny]
-        coords = np.r_['1,2,0', x, y]
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
-                                    min_samples=min_samples).fit(coords)
-        for ci in set(clusterer.labels_):
-            mask = clusterer.labels_ == ci
-            x_, y_ = x[mask], y[mask]
-            if ci == -1:
-                tmp = _remove_real_outliers(x_, y_)
-                for xi, yi in tmp:
-                    for i in range(-buf, buf+1):
-                        for j in range(-buf, buf+1):
+            if (ci == -1) or (x_.size < filter_min_cluster_size//2):
+                x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=q_thre, w=3)
+                for xi, yi in zip(x_f, y_f):
+                    for i in range(-buff, buff+1):
+                        for j in range(-buff, buff+1):
                             candi.add((xi+i, yi+j))
-                continue
             else:
-                if x_.size < top_n:
-                    for xi, yi in zip(x_, y_):
+                pvalues = filter_intra_cluster_points(M, nM, weights, Ed, x_, y_)
+                for pv, xi, yi in zip(pvalues, x_, y_):
+                    if pv < q_thre:
                         for i in range(-buff, buff+1):
                             for j in range(-buff, buff+1):
                                 candi.add((xi+i, yi+j))
-                else:
-                    n = min(top_n, int(np.ceil(x_.size * top_per)))
-                    sort_table = []
-                    for xi, yi in zip(x_, y_):
-                        v = M[xi, yi]
-                        if np.isnan(v):
-                            continue
-                        d = yi - xi
-                        if d + 1 > Ed.size:
-                            v = v / Ed[-1]
-                        else:
-                            v = v / Ed[d]
-                        sort_table.append((v, xi, yi))
-
-                    sort_table.sort(reverse=True)
-                    for _, xi, yi in sort_table[:n]:
-                        for i in range(-buff, buff+1):
-                            for j in range(-buff, buff+1):
-                                candi.add((xi+i, yi+j))
-                    
-                    if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                       (x_.size > filter_min_cluster_size):
-                        fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
-                        for _, xi, yi in sort_table[fn:]:
-                            for i in range(-buff, buff+1):
-                                for j in range(-buff, buff+1):
-                                    bad_pixels.add((xi+i, yi+j))
+        
+                if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+                   (x_.size > filter_min_cluster_size):
+                    for pv, xi, yi in zip(pvalues, x_, y_):
+                        if pv > 0.2:
+                            bad_pixels.add((xi, yi))
     else:
         for xi, yi in zip(x, y):
             for i in range(-buf, buf+1):
@@ -249,6 +223,72 @@ def filter_candidates(candidate_pool):
     
     return candidates
 
+def add_neighbor_candidates(candidates, M, buff=1):
+
+    new_candidates = candidates.copy()
+    for xi, yi in candidates:
+        ref = M[xi, yi]
+        for i in range(-buff, buff+1):
+            for j in range(-buff, buff+1):
+                x = xi + i
+                y = yi + j
+                if (0 < x < M.shape[0]) and (0 < y < M.shape[1]):
+                    if M[x, y] > ref:
+                        new_candidates.add((x, y))
+    
+    return new_candidates
+
+def remove_real_outliers(x, y, buff=1):
+
+    pool = set(zip(x, y))
+    filtered = set()
+    for xi, yi in pool:
+        for i in range(-buff, buff+1):
+            for j in range(-buff, buff+1):
+                if (i == 0) and (j == 0):
+                    continue
+                if (xi+i, yi+j) in pool:
+                    filtered.add((xi, yi))
+    
+    return filtered
+
+def apply_buff(candi, buff):
+
+    D = defaultdict(set)
+    neighbors = set([(0, 0), (0, 1), (1, 1),
+                     (0, -1), (-1, 0), (1, -1),
+                     (-1, -1), (-1, 1), (1, 0)])
+    Q1 = set([(0, 2), (1, 2), (2, 2),
+              (2, 1), (2, 0)])
+    Q2 = set([(-2, 0), (-2, 1), (-2, 2),
+              (-1, 2), (0, 2)])
+    Q3 = set([(-2, 0), (-2, -1), (-2, -2),
+              (-1, -2), (0, -2)])
+    Q4 = set([(0, -2), (1, -2), (2, -2),
+              (2, -1), (2, 0)])
+    for xi, yi in candi:
+        for i in range(-2, 3):
+            for j in range(-2, 3):
+                x = xi + i
+                y = yi + j
+                D[(x, y)].add((xi-x, yi-y))
+
+    new = set()
+    for k in D:
+        if len(D[k] & neighbors):
+            new.add(k)
+        if buff > 1:
+            if len(D[k] & Q1) > 1:
+                new.add(k)
+            if len(D[k] & Q2) > 1:
+                new.add(k)
+            if len(D[k] & Q3) > 1:
+                new.add(k)
+            if len(D[k] & Q4) > 1:
+                new.add(k)
+
+    return new
+    
 def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                       min_cluster_size=3, min_samples=3, shrink_per=15,
                       top_per=10, top_n=10, buff=2):
@@ -287,97 +327,59 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
         candidates_pool.append(coords)
     
     candidates_pool = filter_candidates(candidates_pool)
+    candidates_pool = add_neighbor_candidates(candidates_pool, M)
 
     if balance:
-        M = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
+        nM = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
+        weights_1 = clr.bins().fetch(c1)[balance].values
+        weights_2 = clr.bins().fetch(c2)[balance].values
 
     candi = set()
     bad_pixels = set()
-    top_per = top_per / 100
-    max_cluster_size = 100 # hard-coded param
     filter_min_width = 6 # hard-coded param
-    filter_top_per = 0.15 # hard-coded param
-    filter_top_n = 15 # hard-coded param
-    filter_min_cluster_size = 25 # hard-coded param
-    cut_ratio = shrink_per / 100
-    buf = buff - 1
+    filter_min_cluster_size = 30 # hard-coded param
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         # first round of clustering
         coords = np.r_[list(candidates_pool)]
         clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
                                     min_samples=min_samples).fit(coords)
-        nx = []
-        ny = []
         for ci in set(clusterer.labels_):
             mask = clusterer.labels_ == ci
             x_, y_ = coords[mask].T
-            if (ci == -1) or (x_.size < max_cluster_size):
-                nx.extend(list(x_))
-                ny.extend(list(y_))
-            else:
-                n = int(np.ceil(x_.size * cut_ratio))
-                sort_table = []
-                for xi, yi in zip(x_, y_):
-                    v = M[xi, yi]
-                    if np.isnan(v):
-                        continue
-                    sort_table.append((v, xi, yi))
-                
-                sort_table.sort(reverse=True)
-                for _, xi, yi in sort_table[:n]:
-                    nx.append(xi)
-                    ny.append(yi)
-        
-        # second round of clustering
-        x = np.r_[nx]
-        y = np.r_[ny]
-        coords = np.r_['1,2,0', x, y]
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
-                                    min_samples=min_samples).fit(coords)
-        for ci in set(clusterer.labels_):
-            mask = clusterer.labels_ == ci
-            x_, y_ = x[mask], y[mask]
             if ci == -1:
-                tmp = _remove_real_outliers(x_, y_)
+                tmp = remove_real_outliers(x_, y_)
                 for xi, yi in tmp:
-                    for i in range(-buf, buf+1):
-                        for j in range(-buf, buf+1):
-                            candi.add((xi+i, yi+j))
+                    candi.add((xi, yi))
                 continue
             else:
-                if x_.size < top_n:
-                    for xi, yi in zip(x_, y_):
-                        for i in range(-buff, buff+1):
-                            for j in range(-buff, buff+1):
-                                candi.add((xi+i, yi+j))
+                if balance:
+                    narr = np.array(nM[x_, y_]).ravel()
+                    mask = np.isfinite(narr)
+                    if mask.sum() == 0:
+                        continue
+                    narr, x_, y_ = narr[mask], x_[mask], y_[mask]
+                    evalues = narr.mean() / (weights_1[x_] * weights_2[y_])
+                    varr = np.array(M[x_, y_]).ravel()
                 else:
-                    n = min(top_n, int(np.ceil(x_.size * top_per)))
-                    sort_table = []
-                    for xi, yi in zip(x_, y_):
-                        v = M[xi, yi]
-                        if np.isnan(v):
-                            continue
-                        sort_table.append((v, xi, yi))
-                    
-                    sort_table.sort(reverse=True)
-                    for _, xi, yi in sort_table[:n]:
-                        for i in range(-buff, buff+1):
-                            for j in range(-buff, buff+1):
-                                candi.add((xi+i, yi+j))
-                    
-                    if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                       (x_.size > filter_min_cluster_size):
-                        fn = min(filter_top_n, int(np.ceil(x_.size * filter_top_per)))
-                        for _, xi, yi in sort_table[fn:]:
-                            for i in range(-buff, buff+1):
-                                for j in range(-buff, buff+1):
-                                    bad_pixels.add((xi+i, yi+j))
+                    varr = np.array(M[x_, y_]).ravel()
+                    evalues = varr.mean()
+                
+                Poiss = stats.poisson(evalues)
+                pvalues = Poiss.sf(varr)
+                #qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
+                for qv, xi, yi in zip(pvalues, x_, y_):
+                    if qv < q_thre:
+                        candi.add((xi, yi))
+                
+                if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+                   (x_.size > filter_min_cluster_size):
+                    for qv, xi, yi in zip(pvalues, x_, y_):
+                        if qv > 0.2:
+                            bad_pixels.add((xi, yi))
     else:
-        for xi, yi in candidates_pool:
-            for i in range(-buf, buf+1):
-                for j in range(-buf, buf+1):
-                    candi.add((xi+i, yi+j))
+        candi = candidates_pool
     
+    candi = apply_buff(candi, buff=buff)
     bad_pixels = bad_pixels - candi
     
     return c1, c2, candi, bad_pixels

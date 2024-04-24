@@ -179,7 +179,42 @@ def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
             gaps[c] = np.zeros(len(clr.bins().fetch(c)), dtype=bool)
 
     return gaps
+
+@njit
+def local_background(sub, exp, x, y, w):
+
+    # calculate x and y indices
+    x_arr = np.arange(x-w, x+w+1).reshape((2*w+1, 1))
+    y_arr = np.arange(y-w, y+w+1)
+
+    D = y_arr - x_arr
+    D = np.abs(D)
+    min_dis = D.min()
+    max_dis = D.max()
+    if max_dis >= exp.size:
+        xi, yi = np.where(sub>0)
+        nonzeros = np.zeros(xi.size)
+        for i in range(xi.size):
+            nonzeros[i] = sub[xi[i], yi[i]]
+        E_ = (nonzeros.sum() - sub[w, w]) / (xi.size - 1)
+    else:
+        exp_sub = np.zeros(sub.shape)
+        for d in range(min_dis, max_dis+1):
+            xi, yi = np.where(D==d)
+            for i, j in zip(xi, yi):
+                exp_sub[i, j] = exp[d]
+        
+        xi, yi = np.where(sub>0)
+        sub_ = np.zeros(xi.size)
+        exp_ = np.zeros(xi.size)
+        for i in range(xi.size):
+            sub_[i] = sub[xi[i], yi[i]]
+            exp_[i] = exp_sub[xi[i], yi[i]]
+
+        E_ = (sub_.sum() - sub[w, w]) / (exp_.sum() - exp_sub[w, w]) * exp[y-x]
     
+    return E_
+
 @njit
 def distance_normaize_core(sub, exp, x, y, w):
 
