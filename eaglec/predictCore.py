@@ -296,7 +296,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                 images = np.r_[images]
                 images = convert2TF(images, 256)
                 prob_pool = np.stack([model.predict(images) for model in models])
-                prob_mean = prob_pool.mean(axis=0)
+                prob_mean = prob_pool.mean(axis=0)[:,:6]
                 for k in index_map:
                     coords_tmp = [coords[i_] for i_ in index_map[k]]
                     if len(coords_tmp):
@@ -306,7 +306,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
                         best_i = prob_tmp[:,idx].argmax()
                         if prob_tmp[best_i][idx] > baseline_prob:
                             info[-1] = qr
-                            info[:-2] = list(prob_tmp[best_i])
+                            #info[:-2] = list(prob_tmp[best_i])
                             nL.append(coords_tmp[best_i] + tuple(info))
                         else:
                             sv_list.append(line_map[k])

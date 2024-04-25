@@ -196,7 +196,7 @@ def local_background(sub, exp, x, y, w):
         nonzeros = np.zeros(xi.size)
         for i in range(xi.size):
             nonzeros[i] = sub[xi[i], yi[i]]
-        E_ = (nonzeros.sum() - sub[w, w]) / (xi.size - 1)
+        E_ = nonzeros.mean()
     else:
         exp_sub = np.zeros(sub.shape)
         for d in range(min_dis, max_dis+1):
@@ -211,7 +211,7 @@ def local_background(sub, exp, x, y, w):
             sub_[i] = sub[xi[i], yi[i]]
             exp_[i] = exp_sub[xi[i], yi[i]]
 
-        E_ = (sub_.sum() - sub[w, w]) / (exp_.sum() - exp_sub[w, w]) * exp[y-x]
+        E_ = sub_.sum() / exp_.sum() * exp[y-x]
     
     return E_
 

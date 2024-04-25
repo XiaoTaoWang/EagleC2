@@ -8,15 +8,15 @@ from eaglec.utilities import local_background
 
 log = logging.getLogger(__name__)
 
-def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, w=4):
+def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, ww=3, pw=1):
 
-    mask = (x - w >= 0) & (x + w + 1 <= M.shape[0]) & \
-           (y - w >= 0) & (y + w + 1 <= M.shape[1])
+    mask = (x - ww >= 0) & (x + ww + 1 <= M.shape[0]) & \
+           (y - ww >= 0) & (y + ww + 1 <= M.shape[1])
     x, y = x[mask], y[mask]
     x_filtered = []
     y_filtered = []
     if x.size > 0:
-        seed = np.arange(-w, w+1)
+        seed = np.arange(-ww, ww+1)
         delta = np.tile(seed, (seed.size, 1))
         xxx = x.reshape((x.size, 1, 1)) + delta.T
         yyy = y.reshape((y.size, 1, 1)) + delta
@@ -27,12 +27,13 @@ def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, w=4):
             yi = y[i]
             window = vvv[i].astype(exp.dtype)
             window[np.isnan(window)] = 0
+            window[(ww-pw):(ww+pw+1), (ww-pw):(ww+pw+1)] = 0
 
             nonzero = window.nonzero()[0]
-            if nonzero.size / window.size < 0.1:
+            if nonzero.size / window.size < 0.08:
                 continue
 
-            E_ = local_background(window, exp, xi, yi, w)
+            E_ = local_background(window, exp, xi, yi, ww)
             if not weights is None:
                 evalue = E_ / (weights[xi] * weights[yi])
             else:
@@ -49,23 +50,35 @@ def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, w=4):
     
     return x_filtered, y_filtered
 
-def filter_intra_cluster_points(M, nM, weights, exp, x, y):
+def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1):
     
-    D = y - x
-    D = np.abs(D)
-    if D.max() >= exp.size:
-        E_ = nM[x, y].mean()
-    else:
-        Ed = exp[y-x]
-        E_ = nM[x, y].sum() / Ed.sum() * Ed
+    maxdis = np.abs(y - x).max()
+    coords = set(zip(x, y))
+    pvalues = []
+    for xi, yi in zip(x, y):
+        peaks = set()
+        for i in range(-pw, pw+1):
+            for j in range(-pw, pw+1):
+                peaks.add((xi+i, yi+j))
+        
+        bg_coords = coords - peaks
+        x, y = np.r_[list(bg_coords)].T
+        if maxdis >= exp.size:
+            E_ = nM[x, y].mean()
+        else:
+            Ed = exp[y-x]
+            E_ = nM[x, y].sum() / Ed.sum() * exp[yi-xi]
 
-    if not weights is None:
-        evalues = E_ / (weights[x] * weights[y])
-    else:
-        evalues = E_
+        if not weights is None:
+            evalue = E_ / (weights[xi] * weights[yi])
+        else:
+            evalue = E_
     
-    Poiss = stats.poisson(evalues)
-    pvalues = Poiss.sf(np.array(M[x, y]).ravel())
+        Poiss = stats.poisson(evalue)
+        pvalue = Poiss.sf(M[xi, yi])
+        pvalues.append(pvalue)
+    
+    pvalues = np.r_[pvalues]
 
     return pvalues
 
@@ -141,8 +154,9 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
 
     candi = set()
     bad_pixels = set()
-    filter_min_width = 6 # hard-coded param
-    filter_min_cluster_size = 30 # hard-coded param
+    filter_min_width = 8 # hard-coded param
+    filter_min_cluster_size = 40 # hard-coded param
+    cutoff = 0.05 # hard-coded param
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
         # first round of clustering
@@ -152,8 +166,8 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
         for ci in set(clusterer.labels_):
             mask = clusterer.labels_ == ci
             x_, y_ = x[mask], y[mask]
-            if (ci == -1) or (x_.size < filter_min_cluster_size//2):
-                x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=q_thre, w=3)
+            if (ci == -1) or (x_.size < 10):
+                x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=cutoff)
                 for xi, yi in zip(x_f, y_f):
                     for i in range(-buff, buff+1):
                         for j in range(-buff, buff+1):
@@ -161,7 +175,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
             else:
                 pvalues = filter_intra_cluster_points(M, nM, weights, Ed, x_, y_)
                 for pv, xi, yi in zip(pvalues, x_, y_):
-                    if pv < q_thre:
+                    if pv < cutoff:
                         for i in range(-buff, buff+1):
                             for j in range(-buff, buff+1):
                                 candi.add((xi+i, yi+j))
@@ -179,7 +193,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     
     bad_pixels = bad_pixels - candi
 
-    return c, candi, bad_pixels
+    return c, candi, coords, clusterer, bad_pixels
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, shrink_per=15,
@@ -336,8 +350,9 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
 
     candi = set()
     bad_pixels = set()
-    filter_min_width = 6 # hard-coded param
-    filter_min_cluster_size = 30 # hard-coded param
+    filter_min_width = 8 # hard-coded param
+    filter_min_cluster_size = 40 # hard-coded param
+    cutoff = 0.05
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         # first round of clustering
         coords = np.r_[list(candidates_pool)]
@@ -368,7 +383,7 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                 pvalues = Poiss.sf(varr)
                 #qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
                 for qv, xi, yi in zip(pvalues, x_, y_):
-                    if qv < q_thre:
+                    if qv < cutoff:
                         candi.add((xi, yi))
                 
                 if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
