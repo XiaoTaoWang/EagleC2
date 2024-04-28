@@ -21,83 +21,32 @@ def getargs():
                         help='Print version number and exit.')
 
     parser.add_argument('--mcool', help='''Path to a mcool file containing contact matrices at multiple resolutions''')
-    parser.add_argument('--resolutions', default='5000,10000,25000,50000,100000,250000,500000,1000000',
+    parser.add_argument('--resolutions', default='5000,10000,25000',
                         help='''Resolutions at which the contact matrices will be used for SV prediction.''')
     parser.add_argument('--high-res', default='1000,2000',
                         help='''Resolutions that are exclusively used to detect short-range SVs and
                         refine SV calls identified at coarser resolutions. If a resolution specified
                         by this parameter is not included in the "--resolutions" list, it will be skipped.''')
     parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'CNV', 'Raw'],
-                        help = '''Normalization method. If you choose ICE, make sure you have run
-                        "cooler balance" on your Hi-C matrix before you run this command; If you
-                        choose CNV, make sure you have run "correct-cnv" of the NeoLoopFinder toolkit
-                        before you run this command.''')
+                        help = '''Normalization method.''')
     parser.add_argument('--model-path', default='EagleC2-models',
                         help='''Path to the folder containing pretrained models''')
     parser.add_argument('-O', '--output-prefix', help='''Prefix of the output file names''')
     parser.add_argument('-g', '--genome', default='hg38', choices = ['hg38', 'hg19', 'chm13', 'other'],
-                       help='''Reference genome name.''')
+                       help='''Name of the reference genome.''')
     parser.add_argument('-C', '--chroms', nargs = '*', default = ['#', 'X'],
-                        help = 'List of chromosome labels. Only Hi-C data within the specified '
-                        'chromosomes will be included. Specially, "#" stands for chromosomes '
-                        'with numerical labels. "--chroms" with zero argument will include '
-                        'all chromosome data.')
+                        help = '''List of chromosome labels. Only Hi-C data within the specified
+                        chromosomes will be included. Specially, "#" stands for chromosomes
+                        with numerical labels. "--chroms" with zero argument will include
+                        all chromosome data.''')
     parser.add_argument('--output-format', default='full', choices=['full', 'NeoLoopFinder'],
-                        help='''Format of the reported SVs. full: For each SV, 12 columns will
+                        help='''Format of the reported SVs. full: For each SV, 13 columns will
                         be reported. The Information includes breakpoint coordinates, probability
                         values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the
                         resolution of the contact matrix from which the SV is originally predicted,
                         the finest resolution of the matrix where the SV can be mapped to, and the
                         number of bad bins nearby the SV breakpoints. NeoLoopFinder: 6-column format
                         that can be directly used as the NeoLoopFinder input.''')
-    parser.add_argument('--intra-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
-                        for pre-filtering intra-chromosomal pixels before feeding images into the
-                        CNN models. Lowering this value can speed up the program but may reduce
-                        sensitivity. Value Range: (0, 1]''')
-    parser.add_argument('--inter-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
-                        for pre-filtering inter-chromosomal pixels before feeding images into the
-                        CNN models. Lowering this value can speed up the program but may reduce
-                        sensitivity. Value Range: (0, 1]''')
-    parser.add_argument('--intra-min', default=1, type=int,
-                        help='''The minimum intra-chromosomal interaction frequency value.
-                        Increasing this value may speed up the program but could reduce
-                        sensitivity.''')
-    parser.add_argument('-k', '--max-dis', default=100, type=int,
-                        help='''The maximum genomic distance, measured in pixels, within which 
-                        the expected interaction frequency is calculated for identifying intra-chromosomal
-                        significant interactions. Decreasing this value may speed up the program
-                        but could compromise sensitivity.''')
-    parser.add_argument('--inter-min-per', default=50, type=float,
-                        help='''Percentile of the minimum inter-chromosomal interaction frequency
-                        value. Increasing this value may speed up the program but could reduce
-                        sensitivity. Value Range: [0, 100]''')
-    parser.add_argument('--min-cluster-size', default=4, type=int,
-                        help='''The minimum size of clusters. The value will be directly passed to
-                        the HDBSCAN clustering algorithm. Setting it to 0 will disable the HDBSCAN
-                        clustering.''')
-    parser.add_argument('--min-samples', default=4, type=int,
-                        help='''The number of samples in a neighbourhood for a point to be considered
-                        a core point. The value will be directly passed to the HDBSCAN clustering
-                        algorithm. Setting it to 0 will disable the HDBSCAN clustering.''')
-    parser.add_argument('--shrink-per', default=20, type=float,
-                        help='''Percentile of pixels with the most enriched signals to retain
-                        within each cluster identified by the initial round of HDBSCAN clustering.
-                        Value Range: (0, 100]''')
-    parser.add_argument('--top-per', default=10, type=float,
-                        help='''Percentile of pixels with the most enriched signals that will be
-                        considered for CNN prediction within each cluster identified by the second
-                        round of HDBSCAN. Decreasing the value may accelerate the program but could
-                        reduce sensitivity. Value Range: [0, 100]''')
-    parser.add_argument('--top-n', default=10, type=int,
-                        help='''The number of pixels with the most enriched signals that will be
-                        considered for CNN prediction within each cluster identified by the second
-                        round of HDBSCAN. Decreasing the value may accelerate the program but could
-                        reduce sensitivity. The smaller number of pixels determined by "--top-per"
-                        and "--top-n" will be applied to the pre-filtering procedure.''')
-    parser.add_argument('--extend-size', default=2, type=int,
-                        help='''The number of units that will be extended along each axis for
-                        each candidate pixel. Increasing the value will include more candidate
-                        pixels in prediction but may significantly slow down the program.''')
     parser.add_argument('--entropy-cutoff', default=0.97, type=float, help='''Entropy cutoff.
                         We utilize a pre-filtering procedure based on Shannon entropy before
                         feeding the images into the CNN models. Tuning down this cutoff can
@@ -109,6 +58,72 @@ def getargs():
                         help='''The maximum number of gap bins allowed near the SV breakpoints.''')
     parser.add_argument('-p', '--nproc', default=8, type=int,
                         help='The maximum number of processes to be allocated.')
+    # specific to intra-chromosomal interactions
+    group_1 = parser.add_argument_group(title = 'Parameters for filtering intra-chromosomal candidates:')
+    group_1.add_argument('--intra-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
+                        for pre-filtering intra-chromosomal pixels before feeding images into the
+                        CNN models. Lowering this value can speed up the program but may reduce
+                        sensitivity. Value Range: (0, 1]''')
+    group_1.add_argument('--intra-min', default=1, type=int,
+                        help='''The minimum intra-chromosomal interaction frequency. For intra-chromosomal
+                        interactions, only those with the interaction strength greater than this value
+                        will be considered. Increasing this value may speed up the program but could reduce
+                        sensitivity.''')
+    group_1.add_argument('-k', '--max-dis', default=100, type=int,
+                        help='''The maximum genomic distance, measured in pixels, within which 
+                        the expected interaction strength is calculated to identify intra-chromosomal
+                        significant interactions. Interactions beyond this distance will be assigned
+                        the same expected interaction strength as those at this genomic distance.
+                        Decreasing this value may speed up the program but could compromise sensitivity.''')
+    group_1.add_argument('--intra-min-cluster-size', default=4, type=int,
+                        help='''The minimum size of clusters for intra-chromosomal interactions. The
+                        value will be directly passed to the HDBSCAN clustering algorithm. Setting it
+                        to 0 will disable the HDBSCAN clustering.''')
+    group_1.add_argument('--intra-min-samples', default=4, type=int,
+                        help='''The number of samples in a neighbourhood for a point to be considered
+                        a core point. The value will be directly passed to the HDBSCAN clustering
+                        algorithm. Setting it to 0 will disable the HDBSCAN clustering.''')
+    group_1.add_argument('--intra-max-cluster-size', default=250, type=int,
+                        help='''The maximum size of clusters for intra-chromosomal interactions.''')
+    group_1.add_argument('--intra-decay-rate', default=0.8, type=float,
+                        help='''The decay rate for intra-chromosomal clusters with a size greater
+                        than the "--intra-max-cluster-size". Value Range: (0, 1]''')
+    group_1.add_argument('--intra-niter', default=3, type=int,
+                        help='''The number of HDBSCAN clustering iterations. During each iteration,
+                        large clusters will shrink at a rate determined by "--intra-decay-rate" by
+                        discarding interactions with weaker signals.''')
+    group_1.add_argument('--intra-extend-size', default=2, type=int,
+                        help='''The number of units extended along each axis for each intra-chromosomal
+                        candidate. Increasing the value expands the prediction to encompass more candidate
+                        pixels, potentially enhancing sensitivity but significantly slowing down the program.''')
+    # specific to inter-chromosomal interactions
+    group_2 = parser.add_argument_group(title = 'Parameters for filtering inter-chromosomal candidates:')
+    group_2.add_argument('--inter-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
+                        for pre-filtering inter-chromosomal pixels before feeding images into the
+                        CNN models. Value Range: (0, 1]''')
+    group_2.add_argument('--inter-min-per', default=50, type=float,
+                        help='''Percentile of the minimum inter-chromosomal interaction frequency.
+                        Only inter-chromosomal interactions with an interaction strength higher than
+                        this value will be considered. Value Range: [0, 100]''')
+    group_2.add_argument('--inter-min-cluster-size', default=4, type=int,
+                        help='''The minimum size of clusters for inter-chromosomal interactions. The
+                        value will be directly passed to the HDBSCAN clustering algorithm. Setting it
+                        to 0 will disable the HDBSCAN clustering.''')
+    group_2.add_argument('--inter-min-samples', default=4, type=int,
+                        help='''This parameter functions similarly to "--intra-min-samples", but
+                        applies to inter-chromosomal interactions. Setting it to 0 will disable the
+                        HDBSCAN clustering.''')
+    group_2.add_argument('--inter-max-cluster-size', default=100, type=int,
+                        help='''The maximum size of clusters for inter-chromosomal interactions.''')
+    group_2.add_argument('--inter-decay-rate', default=0.6, type=float,
+                        help='''The decay rate for inter-chromosomal clusters with a size greater
+                        than the value determined by "--inter-max-cluster-size". Value Range: (0, 1]''')
+    group_2.add_argument('--inter-niter', default=3, type=int,
+                        help='''This parameter functions similarly to "--intra-niter", but
+                        applies to inter-chromosomal interactions.''')
+    group_2.add_argument('--inter-extend-size', default=1, type=int,
+                        help='''This parameter functions similarly to "--intra-extend-size", but
+                        applies to inter-chromosomal interactions.''')
 
     ## Parse the command-line arguments
     commands = sys.argv[1:]
@@ -154,24 +169,30 @@ def run():
                    '# Path to CNN models = {0}'.format(args.model_path),
                    '# Reference Genome = {0}'.format(args.genome),
                    '# Included Chromosomes = {0}'.format(args.chroms),
-                   '# Qvalue Cutoff (Cis) = {0}'.format(args.intra_qvalue_cutoff),
-                   '# Qvalue Cutoff (Trans) = {0}'.format(args.inter_qvalue_cutoff),
-                   '# Minimum Cis-contact Strength = {0}'.format(args.intra_min),
-                   '# Maximum Genomic Distance = {0}'.format(args.max_dis),
-                   '# Minimum Trans-contact Percentile = {0}'.format(args.inter_min_per),
-                   '# Minimum Cluster Size = {0}'.format(args.min_cluster_size),
-                   '# Minimum Number of Samples = {0}'.format(args.min_samples),
-                   '# Shrink Percentage = {0}'.format(args.shrink_per),
-                   '# Percentile of Pixels within Each Cluster = {0}'.format(args.top_per),
-                   '# Number of Pixels within Each Cluster = {0}'.format(args.top_n),
-                   '# Extend Size = {0}'.format(args.extend_size),
                    '# Entropy Cutoff = {0}'.format(args.entropy_cutoff),
                    '# Probability Cutoff = {0}'.format(args.prob_cutoff),
                    '# Allowed Number of Gap Bins = {0}'.format(args.allowed_gaps),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
                    '# Output Format = {0}'.format(args.output_format),
-                   '# Log File Name = {0}'.format(logfil)
+                   '# Log File Name = {0}'.format(logfil),
+                   '# Qvalue Cutoff (Cis) = {0}'.format(args.intra_qvalue_cutoff),
+                   '# Minimum Cis-contact Strength (Cis) = {0}'.format(args.intra_min),
+                   '# Maximum Genomic Distance (Cis) = {0}'.format(args.max_dis),
+                   '# Minimum Cluster Size (Cis) = {0}'.format(args.intra_min_cluster_size),
+                   '# Minimum Number of Samples (Cis) = {0}'.format(args.intra_min_samples),
+                   '# Maximum Cluster Size (Cis) = {0}'.format(args.intra_max_cluster_size),
+                   '# Decay Rate for Large Clusters (Cis) = {0}'.format(args.intra_decay_rate),
+                   '# HDBSCAN Iterations (Cis) = {0}'.format(args.intra_niter),
+                   '# Extend Size (Cis) = {0}'.format(args.intra_extend_size),
+                   '# Qvalue Cutoff (Trans) = {0}'.format(args.inter_qvalue_cutoff),
+                   '# Minimum Trans-contact Percentile = {0}'.format(args.inter_min_per),
+                   '# Minimum Cluster Size (Trans) = {0}'.format(args.inter_min_cluster_size),
+                   '# Minimum Number of Samples (Trans) = {0}'.format(args.inter_min_samples),
+                   '# Maximum Cluster Size (Trans) = {0}'.format(args.inter_max_cluster_size),
+                   '# Decay Rate for Large Clusters (Trans) = {0}'.format(args.inter_decay_rate),
+                   '# HDBSCAN Iterations (Trans) = {0}'.format(args.inter_niter),
+                   '# Extend Size (Trans) = {0}'.format(args.inter_extend_size)
                    ]
         argtxt = '\n'.join(arglist)
         logger.info('\n' + argtxt)
@@ -231,18 +252,22 @@ def run():
             if not res in high_res:
                 tmp = select_intra_candidate(clr, chroms, balance, expected_values[res], k=args.max_dis,
                                              q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
-                                             min_cluster_size=args.min_cluster_size,
-                                             min_samples=args.min_samples, shrink_per=args.shrink_per,
-                                             top_per=args.top_per, top_n=args.top_n, buff=args.extend_size,
+                                             min_cluster_size=args.intra_min_cluster_size,
+                                             min_samples=args.intra_min_samples,
+                                             max_cluster_size=args.intra_max_cluster_size,
+                                             decay_rate=args.intra_decay_rate,
+                                             niter=args.intra_niter, buff=args.intra_extend_size,
                                              nproc=args.nproc, highres=False)
                 intra[res] = tmp[0]
                 intra_bad[res] = tmp[1]
             else:
                 tmp = select_intra_candidate(clr, chroms, balance, expected_values[res], k=args.max_dis,
                                              q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
-                                             min_cluster_size=args.min_cluster_size,
-                                             min_samples=args.min_samples, shrink_per=args.shrink_per,
-                                             top_per=args.top_per, top_n=args.top_n, buff=args.extend_size,
+                                             min_cluster_size=args.intra_min_cluster_size,
+                                             min_samples=args.intra_min_samples,
+                                             max_cluster_size=args.intra_max_cluster_size,
+                                             decay_rate=args.intra_decay_rate,
+                                             niter=args.intra_niter, buff=args.intra_extend_size,
                                              nproc=args.nproc, highres=True)
                 intra[res] = tmp[0]
                 intra_bad[res] = tmp[1]
@@ -265,9 +290,10 @@ def run():
                 clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
                 logger.info('Resolution {0}'.format(res))
                 tmp = select_inter_candidate(clr, chroms, balance, windows=[3,5], min_per=args.inter_min_per,
-                                             q_thre=args.inter_qvalue_cutoff, min_cluster_size=args.min_cluster_size,
-                                             min_samples=args.min_samples, shrink_per=args.shrink_per, top_per=args.top_per,
-                                             top_n=args.top_n, buff=1, nproc=args.nproc)
+                                             q_thre=args.inter_qvalue_cutoff, min_cluster_size=args.inter_min_cluster_size,
+                                             min_samples=args.inter_min_samples, max_cluster_size=args.inter_max_cluster_size,
+                                             decay_rate=args.inter_decay_rate, niter=args.inter_niter,
+                                             buff=args.inter_extend_size, nproc=args.nproc)
                 inter[res] = tmp[0]
                 inter_bad[res] = tmp[1]
         

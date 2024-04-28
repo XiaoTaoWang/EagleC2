@@ -147,7 +147,7 @@ def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1, min_points=10):
     return filtered_table, singletons, short_range
 
 def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=4,
-                      min_samples=4, shrink_per=30, top_per=10, top_n=10, buff=2,
+                      min_samples=4, max_cluster_size=250, decay_rate=0.8, niter=3, buff=2,
                       highres=False):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c).tocsr()
@@ -233,8 +233,8 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
         exp[dis<Ed.size] = Ed[dis[dis<Ed.size]]
         values = values / exp
         x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
-                                               min_samples=min_samples, max_cluster_size=100,
-                                               cut_ratio=0.8, round=3)
+                                               min_samples=min_samples, max_cluster_size=max_cluster_size,
+                                               cut_ratio=decay_rate, round=niter)
         coords = np.r_[list(zip(x, y))]
         for ci in set(clusterer.labels_):
             mask = clusterer.labels_ == ci
@@ -305,13 +305,13 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     return c, candi, bad_pixels
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
-                           min_cluster_size=3, min_samples=3, shrink_per=15,
-                           top_per=10, top_n=10, buff=2, nproc=4, highres=False):
+                           min_cluster_size=3, min_samples=3, max_cluster_size=250,
+                           decay_rate=0.8, niter=3, buff=2, nproc=4, highres=False):
 
     queue = []
     for c in chroms:
         queue.append((clr, c, balance, Ed[c], k, q_thre, minv, min_cluster_size,
-                      min_samples, shrink_per, top_per, top_n, buff,
+                      min_samples, max_cluster_size, decay_rate, niter, buff,
                       highres))
     
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
@@ -442,8 +442,8 @@ def filter_inter_cluster_points(M, nM, weights_1, weights_2, x, y):
     return results
     
 def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
-                      min_cluster_size=4, min_samples=4, shrink_per=15,
-                      top_per=10, top_n=10, buff=1):
+                      min_cluster_size=4, min_samples=4, max_cluster_size=100,
+                      decay_rate=0.6, niter=3, buff=1):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c1, c2).tocsr()
     x, y = M.nonzero()
@@ -505,8 +505,8 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
         if len(coords) > min_samples:
             # first round of clustering
             x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
-                                                min_samples=min_samples, max_cluster_size=100,
-                                                cut_ratio=0.6, round=3)
+                                                min_samples=min_samples, max_cluster_size=max_cluster_size,
+                                                cut_ratio=decay_rate, round=niter)
             coords = np.r_[list(zip(x, y))]
             for ci in set(clusterer.labels_):
                 mask = clusterer.labels_ == ci
@@ -537,16 +537,17 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
     
     return c1, c2, candi, bad_pixels
 
-def select_inter_candidate(clr, chroms, balance, windows=[3,4,5], min_per=50,
-                           q_thre=0.01, min_cluster_size=3, min_samples=3,
-                           shrink_per=15, top_per=10, top_n=10, buff=2, nproc=4):
-
+def select_inter_candidate(clr, chroms, balance, windows=[3,5], min_per=50,
+                           q_thre=0.01, min_cluster_size=4, min_samples=4,
+                           max_cluster_size=100, decay_rate=0.6, niter=3, buff=1,
+                           nproc=4):
+    
     queue = []
     for i in range(len(chroms)-1):
         for j in range(i+1, len(chroms)):
             queue.append((clr, chroms[i], chroms[j], balance, windows, min_per,
-                          q_thre, min_cluster_size, min_samples, shrink_per,
-                          top_per, top_n, buff))
+                          q_thre, min_cluster_size, min_samples, max_cluster_size,
+                          decay_rate, niter, buff))
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
