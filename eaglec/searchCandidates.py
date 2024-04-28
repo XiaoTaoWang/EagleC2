@@ -8,6 +8,41 @@ from eaglec.utilities import local_background
 
 log = logging.getLogger(__name__)
 
+def iterative_clustering(coords, values, min_cluster_size=4, min_samples=4,
+                         max_cluster_size=100, cut_ratio=0.8, round=3):
+    
+    for _ in range(round):
+        x, y = coords.T
+        nx = []
+        ny = []
+        nv = []
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
+                                    min_samples=min_samples).fit(coords)
+        for ci in set(clusterer.labels_):
+            mask = clusterer.labels_ == ci
+            x_, y_, v_ = x[mask], y[mask], values[mask]
+            if (ci == -1) or (x_.size < max_cluster_size):
+                nx.extend(list(x_))
+                ny.extend(list(y_))
+                nv.extend(list(v_))
+            else:
+                n = int(np.ceil(x_.size * cut_ratio))
+                sort_table = []
+                for xi, yi, vi in zip(x_, y_, v_):
+                    sort_table.append((vi, xi, yi))
+                
+                sort_table.sort(reverse=True)
+                for vi, xi, yi in sort_table[:n]:
+                    nx.append(xi)
+                    ny.append(yi)
+                    nv.append(vi)
+        
+        coords = np.r_[list(zip(nx, ny))]
+        values = np.r_[nv]
+    
+    return x, y, clusterer
+
+
 def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, ww=3, pw=1):
 
     mask = (x - ww >= 0) & (x + ww + 1 <= M.shape[0]) & \
@@ -50,11 +85,35 @@ def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, ww=3, pw=1):
     
     return x_filtered, y_filtered
 
-def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1):
+def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1, min_points=10):
     
-    maxdis = np.abs(y - x).max()
-    coords = set(zip(x, y))
-    pvalues = []
+    dis = []
+    expanded_coords = set()
+    for xi, yi in zip(x, y):
+        for i in range(-pw, pw+1):
+            for j in range(-pw, pw+1):
+                expanded_coords.add((xi+i, yi+j))
+                d = (yi+j) - (xi+i)
+                dis.append(d)
+
+    coords = set()
+    for xi, yi in expanded_coords:
+        v = nM[xi, yi]
+        if np.isnan(v):
+            continue
+        if v == 0:
+            continue
+        coords.add((xi, yi))
+    
+    # correct the peak width for narrow clusters
+    if (x.max() - x.min() < (2*pw+1)) or (y.max() - y.min() < (2*pw+1)):
+        pw = 0
+
+    # calculate the p-values
+    maxdis = max(dis)
+    mindis = min(dis)
+    singletons = set()
+    filtered_table = []
     for xi, yi in zip(x, y):
         peaks = set()
         for i in range(-pw, pw+1):
@@ -62,25 +121,30 @@ def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1):
                 peaks.add((xi+i, yi+j))
         
         bg_coords = coords - peaks
-        x, y = np.r_[list(bg_coords)].T
-        if maxdis >= exp.size:
-            E_ = nM[x, y].mean()
-        else:
-            Ed = exp[y-x]
-            E_ = nM[x, y].sum() / Ed.sum() * exp[yi-xi]
+        if len(bg_coords) >= min_points:
+            x, y = np.r_[list(bg_coords)].T
+            if maxdis >= exp.size:
+                E_ = nM[x, y].mean()
+            else:
+                Ed = exp[y-x]
+                E_ = nM[x, y].sum() / Ed.sum() * exp[yi-xi]
 
-        if not weights is None:
-            evalue = E_ / (weights[xi] * weights[yi])
+            if not weights is None:
+                evalue = E_ / (weights[xi] * weights[yi])
+            else:
+                evalue = E_
+    
+            Poiss = stats.poisson(evalue)
+            pvalue = Poiss.sf(M[xi, yi])
+            filtered_table.append((pvalue, xi, yi))
         else:
-            evalue = E_
+            singletons.add((xi, yi))
     
-        Poiss = stats.poisson(evalue)
-        pvalue = Poiss.sf(M[xi, yi])
-        pvalues.append(pvalue)
-    
-    pvalues = np.r_[pvalues]
+    short_range = True
+    if mindis > exp.size:
+        short_range = False
 
-    return pvalues
+    return filtered_table, singletons, short_range
 
 def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=4,
                       min_samples=4, shrink_per=30, top_per=10, top_n=10, buff=2,
@@ -153,38 +217,83 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     x, y = x[mask], y[mask]
 
     candi = set()
-    bad_pixels = set()
-    filter_min_width = 8 # hard-coded param
-    filter_min_cluster_size = 40 # hard-coded param
+    singletons = set()
+    bad_pixels= set()
+    filter_min_width = 7 # hard-coded param
+    filter_min_cluster_size = 25 # hard-coded param
     cutoff = 0.05 # hard-coded param
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
-        # first round of clustering
+        # iterative clustering
         coords = np.r_['1,2,0', x, y]
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
-                                    min_samples=min_samples).fit(coords)
+        values = np.array(nM[x, y]).ravel()
+        exp = np.zeros(values.size)
+        dis = y - x
+        exp[dis>=Ed.size] = Ed[-1]
+        exp[dis<Ed.size] = Ed[dis[dis<Ed.size]]
+        values = values / exp
+        x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
+                                               min_samples=min_samples, max_cluster_size=100,
+                                               cut_ratio=0.8, round=3)
+        coords = np.r_[list(zip(x, y))]
         for ci in set(clusterer.labels_):
             mask = clusterer.labels_ == ci
             x_, y_ = x[mask], y[mask]
-            if (ci == -1) or (x_.size < 10):
+            if ci >= 0:
+                filtered_table, tmp, short_range = filter_intra_cluster_points(M, nM, weights, Ed, x_, y_)
+                singletons.update(tmp)
+                tmp_bad = set()
+                tmp_good = set()
+                if len(filtered_table) > 0:
+                    pvalues = [t[0] for t in filtered_table]
+                    qvalues = multipletests(pvalues, method='fdr_bh')[1]
+                    for qv, (pv, xi, yi) in zip(qvalues, filtered_table):
+                        if (xi in [x_.min(), x_.max()]) and (yi in [y_.min(), y_.max()]):
+                            if qv < 0.01:
+                                tmp_good.add((xi, yi))
+                            elif qv > 0.05:
+                                tmp_bad.add((xi, yi))
+                
+                bad_candi = set()
+                for pv, xi, yi in filtered_table:
+                    if pv < cutoff:
+                        tmp_candi = set()
+                        if short_range:
+                            for i in range(-buff, buff+1):
+                                for j in range(-buff, buff+1):
+                                    tmp_candi.add((xi+i, yi+j))
+                        else:
+                            for i in range(-buf, buf+1):
+                                for j in range(-buf, buf+1):
+                                    tmp_candi.add((xi+i, yi+j))
+                        
+                        if (not (xi, yi) in tmp_good) and (len(tmp_good & tmp_candi) > 0) and \
+                           (len(tmp_bad & tmp_candi) > 0):
+                            bad_candi.update(tmp_bad & tmp_candi)
+                
+                        candi.update(tmp_candi)
+                
+                candi = candi - bad_candi
+
+                if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+                   (x_.size > filter_min_cluster_size):
+                    for pv, xi, yi in filtered_table:
+                        if pv > 0.2:
+                            bad_pixels.add((xi, yi))
+            else:
+                tmp = set(zip(x_, y_))
+                singletons.update(tmp)
+                x_, y_ = np.r_[list(singletons)].T
                 x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=cutoff)
                 for xi, yi in zip(x_f, y_f):
-                    for i in range(-buff, buff+1):
-                        for j in range(-buff, buff+1):
-                            candi.add((xi+i, yi+j))
-            else:
-                pvalues = filter_intra_cluster_points(M, nM, weights, Ed, x_, y_)
-                for pv, xi, yi in zip(pvalues, x_, y_):
-                    if pv < cutoff:
+                    if yi - xi <= Ed.size:
                         for i in range(-buff, buff+1):
                             for j in range(-buff, buff+1):
                                 candi.add((xi+i, yi+j))
-        
-                if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                   (x_.size > filter_min_cluster_size):
-                    for pv, xi, yi in zip(pvalues, x_, y_):
-                        if pv > 0.2:
-                            bad_pixels.add((xi, yi))
+                    else:
+                        for i in range(-buf, buf+1):
+                            for j in range(-buf, buf+1):
+                                candi.add((xi+i, yi+j))
     else:
         for xi, yi in zip(x, y):
             for i in range(-buf, buf+1):
@@ -193,7 +302,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     
     bad_pixels = bad_pixels - candi
 
-    return c, candi, coords, clusterer, bad_pixels
+    return c, candi, bad_pixels
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, shrink_per=15,
@@ -302,10 +411,39 @@ def apply_buff(candi, buff):
                 new.add(k)
 
     return new
+
+def filter_inter_cluster_points(M, nM, weights_1, weights_2, x, y):
+
+    results = []
+    # avoid estimating the expected value using too many points
+    if not weights_1 is None:
+        narr = np.array(nM[x, y]).ravel()
+        mask = np.isfinite(narr)
+        if mask.sum() == 0:
+            return results
+        narr, x, y = narr[mask], x[mask], y[mask]
+        varr = np.array(M[x, y]).ravel()
+    else:
+        narr = np.array(nM[x, y]).ravel()
+        varr = narr
+    
+    avg = narr.mean()
+    
+    # calculate the p-values
+    if not weights_1 is None:
+        evalues = avg / (weights_1[x] * weights_2[y])
+    else:
+        evalues = avg
+    
+    Poiss = stats.poisson(evalues)
+    pvalues = Poiss.sf(varr)
+    results = list(zip(pvalues, x, y))
+    
+    return results
     
 def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
-                      min_cluster_size=3, min_samples=3, shrink_per=15,
-                      top_per=10, top_n=10, buff=2):
+                      min_cluster_size=4, min_samples=4, shrink_per=15,
+                      top_per=10, top_n=10, buff=1):
 
     M = clr.matrix(balance=False, sparse=True).fetch(c1, c2).tocsr()
     x, y = M.nonzero()
@@ -347,50 +485,50 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
         nM = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
         weights_1 = clr.bins().fetch(c1)[balance].values
         weights_2 = clr.bins().fetch(c2)[balance].values
+    else:
+        nM = M
+        weights_1 = None
+        weights_2 = None
 
     candi = set()
     bad_pixels = set()
-    filter_min_width = 8 # hard-coded param
-    filter_min_cluster_size = 40 # hard-coded param
+    filter_min_width = 7 # hard-coded param
+    filter_min_cluster_size = 25 # hard-coded param
     cutoff = 0.05
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
-        # first round of clustering
         coords = np.r_[list(candidates_pool)]
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
-                                    min_samples=min_samples).fit(coords)
-        for ci in set(clusterer.labels_):
-            mask = clusterer.labels_ == ci
-            x_, y_ = coords[mask].T
-            if ci == -1:
-                tmp = remove_real_outliers(x_, y_)
-                for xi, yi in tmp:
-                    candi.add((xi, yi))
-                continue
-            else:
-                if balance:
-                    narr = np.array(nM[x_, y_]).ravel()
-                    mask = np.isfinite(narr)
-                    if mask.sum() == 0:
-                        continue
-                    narr, x_, y_ = narr[mask], x_[mask], y_[mask]
-                    evalues = narr.mean() / (weights_1[x_] * weights_2[y_])
-                    varr = np.array(M[x_, y_]).ravel()
-                else:
-                    varr = np.array(M[x_, y_]).ravel()
-                    evalues = varr.mean()
-                
-                Poiss = stats.poisson(evalues)
-                pvalues = Poiss.sf(varr)
-                #qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
-                for qv, xi, yi in zip(pvalues, x_, y_):
-                    if qv < cutoff:
+        x, y = coords.T
+        values = np.array(nM[x, y]).ravel()
+        mask = np.isfinite(values)
+        values = values[mask]
+        coords = coords[mask]
+        if len(coords) > min_samples:
+            # first round of clustering
+            x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
+                                                min_samples=min_samples, max_cluster_size=100,
+                                                cut_ratio=0.6, round=3)
+            coords = np.r_[list(zip(x, y))]
+            for ci in set(clusterer.labels_):
+                mask = clusterer.labels_ == ci
+                x_, y_ = x[mask], y[mask]
+                if ci == -1:
+                    tmp = remove_real_outliers(x_, y_)
+                    for xi, yi in tmp:
                         candi.add((xi, yi))
-                
-                if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                   (x_.size > filter_min_cluster_size):
-                    for qv, xi, yi in zip(pvalues, x_, y_):
-                        if qv > 0.2:
-                            bad_pixels.add((xi, yi))
+                    continue
+                else:
+                    triples = filter_inter_cluster_points(M, nM, weights_1, weights_2, x_, y_)
+                    for pv, xi, yi in triples:
+                        if pv < cutoff:
+                            candi.add((xi, yi))
+                    
+                    if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
+                    (x_.size > filter_min_cluster_size):
+                        for pv, xi, yi in triples:
+                            if pv > 0.2:
+                                bad_pixels.add((xi, yi))
+        else:
+            candi = candidates_pool
     else:
         candi = candidates_pool
     
