@@ -92,9 +92,10 @@ def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1, min_points=10):
     for xi, yi in zip(x, y):
         for i in range(-pw, pw+1):
             for j in range(-pw, pw+1):
-                expanded_coords.add((xi+i, yi+j))
-                d = (yi+j) - (xi+i)
-                dis.append(d)
+                if (xi+i > 0) and (xi+i < M.shape[0]) and (yi+j > 0) and (yi+j < M.shape[1]):
+                    expanded_coords.add((xi+i, yi+j))
+                    d = (yi+j) - (xi+i)
+                    dis.append(d)
 
     coords = set()
     for xi, yi in expanded_coords:
@@ -242,19 +243,6 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
             if ci >= 0:
                 filtered_table, tmp, short_range = filter_intra_cluster_points(M, nM, weights, Ed, x_, y_)
                 singletons.update(tmp)
-                tmp_bad = set()
-                tmp_good = set()
-                if len(filtered_table) > 0:
-                    pvalues = [t[0] for t in filtered_table]
-                    qvalues = multipletests(pvalues, method='fdr_bh')[1]
-                    for qv, (pv, xi, yi) in zip(qvalues, filtered_table):
-                        if (xi in [x_.min(), x_.max()]) and (yi in [y_.min(), y_.max()]):
-                            if qv < 0.01:
-                                tmp_good.add((xi, yi))
-                            elif qv > 0.05:
-                                tmp_bad.add((xi, yi))
-                
-                bad_candi = set()
                 for pv, xi, yi in filtered_table:
                     if pv < cutoff:
                         tmp_candi = set()
@@ -266,20 +254,16 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
                             for i in range(-buf, buf+1):
                                 for j in range(-buf, buf+1):
                                     tmp_candi.add((xi+i, yi+j))
-                        
-                        if (not (xi, yi) in tmp_good) and (len(tmp_good & tmp_candi) > 0) and \
-                           (len(tmp_bad & tmp_candi) > 0):
-                            bad_candi.update(tmp_bad & tmp_candi)
                 
                         candi.update(tmp_candi)
-                
-                candi = candi - bad_candi
 
                 if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
                    (x_.size > filter_min_cluster_size):
                     for pv, xi, yi in filtered_table:
                         if pv > 0.2:
-                            bad_pixels.add((xi, yi))
+                            for i in range(-buf, buf+1):
+                                for j in range(-buf, buf+1):
+                                    bad_pixels.add((xi+i, yi+j))
             else:
                 tmp = set(zip(x_, y_))
                 singletons.update(tmp)
@@ -523,10 +507,12 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                             candi.add((xi, yi))
                     
                     if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                    (x_.size > filter_min_cluster_size):
+                       (x_.size > filter_min_cluster_size):
                         for pv, xi, yi in triples:
                             if pv > 0.2:
-                                bad_pixels.add((xi, yi))
+                                for i in range(-buff, buff+1):
+                                    for j in range(-buff, buff+1):
+                                        bad_pixels.add((xi+i, yi+j))
         else:
             candi = candidates_pool
     else:
