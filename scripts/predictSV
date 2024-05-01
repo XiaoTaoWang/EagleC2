@@ -40,13 +40,13 @@ def getargs():
                         with numerical labels. "--chroms" with zero argument will include
                         all chromosome data.''')
     parser.add_argument('--output-format', default='full', choices=['full', 'NeoLoopFinder'],
-                        help='''Format of the reported SVs. full: For each SV, 13 columns will
-                        be reported. The Information includes breakpoint coordinates, probability
-                        values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the
-                        resolution of the contact matrix from which the SV is originally predicted,
-                        the finest resolution of the matrix where the SV can be mapped to, and the
-                        number of bad bins nearby the SV breakpoints. NeoLoopFinder: 6-column format
-                        that can be directly used as the NeoLoopFinder input.''')
+                        help='''Format of the reported SVs. full: This format includes 14 columns
+                        for each SV. It provides information such as breakpoint coordinates, probability
+                        values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the resolution
+                        of the contact matrix from which the SV is originally predicted, the finest
+                        resolution where the SV can be mapped, the number of bad bins near the SV
+                        breakpoints, and whether the distance-decay pattern can be detected. NeoLoopFinder:
+                        This format includes 6 columns that can be directly used as the NeoLoopFinder input.''')
     parser.add_argument('--entropy-cutoff', default=0.97, type=float, help='''Entropy cutoff.
                         We utilize a pre-filtering procedure based on Shannon entropy before
                         feeding the images into the CNN models. Tuning down this cutoff can
@@ -54,6 +54,9 @@ def getargs():
                         Value Range: (0, 1]''')
     parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability cutoff
                         for filtering the original SV calls. Value Range: [0, 1]''')
+    parser.add_argument('--rscore-cutoff', default=0.64, type=float,
+                        help='''R-square cutoff to determine whether the distance-decay pattern
+                        exists near an SV breakpoint.''')
     parser.add_argument('--allowed-gaps', default=2, type=int,
                         help='''The maximum number of gap bins allowed near the SV breakpoints.''')
     parser.add_argument('-p', '--nproc', default=8, type=int,
@@ -113,9 +116,9 @@ def getargs():
                         help='''This parameter functions similarly to "--intra-min-samples", but
                         applies to inter-chromosomal interactions. Setting it to 0 will disable the
                         HDBSCAN clustering.''')
-    group_2.add_argument('--inter-max-cluster-size', default=100, type=int,
+    group_2.add_argument('--inter-max-cluster-size', default=250, type=int,
                         help='''The maximum size of clusters for inter-chromosomal interactions.''')
-    group_2.add_argument('--inter-decay-rate', default=0.6, type=float,
+    group_2.add_argument('--inter-decay-rate', default=0.8, type=float,
                         help='''The decay rate for inter-chromosomal clusters with a size greater
                         than the value determined by "--inter-max-cluster-size". Value Range: (0, 1]''')
     group_2.add_argument('--inter-niter', default=3, type=int,
@@ -171,6 +174,7 @@ def run():
                    '# Included Chromosomes = {0}'.format(args.chroms),
                    '# Entropy Cutoff = {0}'.format(args.entropy_cutoff),
                    '# Probability Cutoff = {0}'.format(args.prob_cutoff),
+                   '# R-square Cutoff = {0}'.format(args.rscore_cutoff),
                    '# Allowed Number of Gap Bins = {0}'.format(args.allowed_gaps),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
@@ -328,15 +332,16 @@ def run():
         logger.info('Fine-map original SV calls at higher resolutions ...')
         SVs = refine_predictions(original_predictions, resolutions, models, args.mcool, balance,
                                  expected_values, gaps, max_gap=args.allowed_gaps, w=15,
-                                 baseline_prob=args.prob_cutoff)
+                                 baseline_prob=args.prob_cutoff, r_cutoff=args.rscore_cutoff,
+                                 nproc=args.nproc)
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
             if args.output_format == 'full':
                 out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+',
                                      'original resolution', 'fine-mapped resolution', 'gap info'])+'\n')
             for line in SVs:
-                c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng = line
+                c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng, decay = line
                 if args.output_format == 'full':
-                    out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\t{11}\t{12}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng))
+                    out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\t{11}\t{12}\t{13}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng, decay))
                 else:
                     strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
                     probs = np.r_[[prob1, prob2, prob3, prob4, prob5, prob6]]

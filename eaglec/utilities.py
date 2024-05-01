@@ -1,10 +1,281 @@
-import cooler, logging, joblib, os, eaglec, glob
+import cooler, logging, joblib, os, eaglec, glob, math
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.isotonic import IsotonicRegression
+from sklearn.linear_model import LinearRegression
+from scipy.stats import spearmanr
 from numba import njit
 
 log = logging.getLogger(__name__)
+
+class SVblock(object):
+
+    def __init__(self, clr, sv, exp, balance='sweight'):
+
+        # exp: returned by calculate_expected
+        c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6 = sv[:10]
+        SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
+        prob = np.array([prob1, prob2, prob3, prob4, prob5, prob6])
+        maxi = prob.argmax()
+        strands = SV_labels[maxi].split('/')
+
+        self.p1 = p1 // clr.binsize
+        self.p2 = p2 // clr.binsize
+        self.chromsize1 = clr.chromsizes[c1] // clr.binsize
+        self.chromsize2 = clr.chromsizes[c2] // clr.binsize
+        self.clr = clr
+        self.strands = strands
+        self.exp = exp
+        self.balance = balance
+        self.c1 = c1
+        self.c2 = c2
+        
+
+    def get_matrices(self, strand, w):
+
+        clr, c1, c2, x, y = self.clr, self.c1, self.c2, self.p1, self.p2
+        Matrix = clr.matrix(balance=self.balance, sparse=True).fetch(c1, c2).tocsr()
+        M1 = Matrix[x-w:x+w+1, y-w:y+w+1].toarray()
+        M1[np.isnan(M1)] = 0
+        if c1 != c2:
+            M2 = M1.copy()
+        else:
+            M1 = M1.astype(self.exp[c1].dtype)
+            M2 = distance_normaize_core(M1, self.exp[c1], x, y, w)    
+
+        if strand == '++':
+            M1 = M1[:(w+1), :(w+1)]
+            M2 = M2[:(w+1), :(w+1)]
+            M1 = M1[:,::-1]
+            M2 = M2[:,::-1]
+        elif strand == '+-':
+            M1 = M1[:(w+1), w:]
+            M2 = M2[:(w+1), w:]
+        elif strand == '-+':
+            M1 = M1[w:, :(w+1)]
+            M2 = M2[w:, :(w+1)]
+            M1 = M1[::-1,::-1]
+            M2 = M2[::-1,::-1]
+        else:
+            M1 = M1[w:, w:]
+            M2 = M2[w:, w:]
+            M1 = M1[::-1,:]
+            M2 = M2[::-1,:]
+        
+        return M1, M2
+    
+    def detect_bounds(self, M):
+
+        from sklearn.decomposition import PCA
+        from scipy.ndimage import gaussian_filter
+
+        u_i = M.shape[0]//2
+        d_i = M.shape[1]//2
+        u_scores = {k:-1 for k in range(M.shape[0])}
+        d_scores = {k:-1 for k in range(M.shape[1])}
+        # locate the upstream and downstream bound independently
+        rowmask = M.sum(axis=1) != 0
+        colmask = M.sum(axis=0) != 0
+        if (rowmask.sum() >= 10) and (colmask.sum() >= 10):
+            # row, upstream
+            new = M[rowmask][:,colmask]
+            corr = gaussian_filter(np.corrcoef(new, rowvar=True), sigma=1)
+            pca = PCA(n_components=3, whiten=True)
+            pc1_row = pca.fit_transform(corr)[:,0]
+            t_i, t_scores = self.locate(pc1_row, rowmask)
+            if not t_i is None:
+                u_i = t_i
+            if len(t_scores):
+                for k in t_scores:
+                    u_scores[k] = t_scores[k]
+
+            # column, downstream
+            corr = gaussian_filter(np.corrcoef(new, rowvar=False), sigma=1)
+            pca = PCA(n_components=3, whiten=True)
+            pc1_col = pca.fit_transform(corr)[:,0]
+            t_i, t_scores = self.locate(pc1_col, colmask)
+            if not t_i is None:
+                d_i = t_i
+            if len(t_scores):
+                for k in t_scores:
+                    d_scores[k] = t_scores[k]
+        
+        return u_i, d_i, u_scores, d_scores
+    
+    def locate(self, curve, mask, cutoff=2.58):
+
+        from scipy.stats import median_abs_deviation
+
+        coords_map = np.where(mask)[0]
+        # identify points with significant value changes compared with the previous points
+        diff = np.abs(np.diff(curve))
+        mad = median_abs_deviation(diff)
+        median = np.median(diff)
+        z_scores = 0.6745 * (diff - median) / mad
+        candidates = np.where(z_scores > cutoff)[0] + 1
+        sort_table = sorted(zip(z_scores[candidates-1], candidates))
+        sort_table.sort(reverse=True)
+        D = dict(zip(coords_map[1:], z_scores))
+
+        # identify stretches of points with the same trend of value change
+        intervals = []
+        diff = np.diff(curve)
+        si = 0
+        ei = 1
+        for i in range(1, diff.size):
+            if np.sign(diff[i]) == np.sign(diff[i-1]):
+                ei += 1
+                if i == (diff.size - 1):
+                    intervals.append((si, ei))
+            else:
+                if (i < diff.size - 1) and (np.sign(diff[i+1]) == np.sign(diff[i-1])) and (np.abs(diff[i+1]) > np.abs(diff[i])*2):
+                    ei += 1
+                    diff[i] = -diff[i]
+                else:
+                    intervals.append((si, ei)) # (si, ei]
+                    if i == (diff.size - 1):
+                        intervals.append((ei, ei+1))
+                    else:
+                        si = ei
+                        ei = si + 1
+        
+        # locate the most possible boundary
+        bound = None
+        for score, pos in sort_table:
+            check = False
+            for si, ei in intervals:
+                if (si < pos <= ei) and (np.sign(curve[si]) != np.sign(curve[ei])):
+                    check = True
+                    break
+            if check:
+                bound = coords_map[pos]
+                break
+
+        return bound, D
+    
+    def check_distance_decay(self, M, min_block_width=3, N=10, dynamic_window_size=4,
+                             min_point_num=10, rscore_cutoff=0.64):
+        
+        correlation = 0
+        rowmask = M.sum(axis=1) != 0
+        colmask = M.sum(axis=0) != 0
+        if (rowmask.sum() < min_block_width) or (colmask.sum() < min_block_width):
+            correlation = 0 # insufficient data
+        else:
+            x_arr = np.arange(0, M.shape[0]).reshape((M.shape[0], 1))
+            y_arr = np.arange(M.shape[0]-1, M.shape[0]+M.shape[1]-1)
+            valid = rowmask.reshape((M.shape[0], 1)) & colmask
+            D = y_arr - x_arr
+            maxdis = min(D.max(), self.exp[self.c1].size-1)
+            diag_sums = np.zeros(maxdis+1)
+            pixel_nums = np.zeros(maxdis+1)
+            for i in range(maxdis+1):
+                mask = (D == i) & valid
+                diag = M[mask]
+                if diag.size > 0:
+                    diag_sums[i] = diag.sum()
+                    pixel_nums[i] = diag.size
+            
+            Ed = {}
+            for i in range(maxdis+1):
+                for w in range(dynamic_window_size+1):
+                    tmp_sums = diag_sums[max(i-w,0):i+w+1]
+                    tmp_nums = pixel_nums[max(i-w,0):i+w+1]
+                    n_count = sum(tmp_sums)
+                    n_pixel = sum(tmp_nums)
+                    if n_pixel > N:
+                        Ed[i] = n_count / n_pixel
+                        break
+            
+            if len(Ed) < min_point_num:
+                correlation = 0 # insufficient data
+            else:
+                Xi = np.r_[sorted(Ed)]
+                X = np.r_[[self.exp[self.c1][i] for i in sorted(Ed)]]
+                Y = np.r_[[Ed[i] for i in sorted(Ed)]]
+                warning, increasing_bool = check_increasing(Xi, Y)
+                if increasing_bool:
+                    correlation = -1
+                else:
+                    IR = IsotonicRegression(increasing=increasing_bool)
+                    IR.fit(Xi, Y)
+                    vi = np.where(np.diff(IR.predict(Xi)) < 0)[0]
+                    if vi.size > 0:
+                        si = min(vi[0], 5)
+                    else:
+                        si = 0
+                    labels = []
+                    step = max(1, (len(Ed) - si - min_point_num + 1) // 5)
+                    for num in range(si+min_point_num, len(Ed)+1, step):
+                        tX = X[si:num][:,np.newaxis]
+                        tY = Y[si:num]
+                        ln = LinearRegression().fit(tX, tY)
+                        rscore = ln.score(tX, tY)
+                        slope = ln.coef_[0]
+                        if (rscore > rscore_cutoff) and (slope > 0):
+                            labels.append(1)
+                            if tX.size > X.size * 0.5:
+                                break
+                        else:
+                            labels.append(-1)
+                    
+                    if not len(labels):
+                        correlation = 0
+                    else:
+                        if min(labels) == -1:
+                            correlation = -1
+                        else:
+                            correlation = 1
+        
+        return correlation
+
+
+def check_increasing(x, y):
+    """Determine whether y is monotonically correlated with x.
+    y is found increasing or decreasing with respect to x based on a Spearman
+    correlation test.
+    Parameters
+    ----------
+    x : array-like of shape (n_samples,)
+            Training data.
+    y : array-like of shape (n_samples,)
+        Training target.
+    Returns
+    -------
+    increasing_bool : boolean
+        Whether the relationship is increasing or decreasing.
+    Notes
+    -----
+    The Spearman correlation coefficient is estimated from the data, and the
+    sign of the resulting estimate is used as the result.
+    In the event that the 95% confidence interval based on Fisher transform
+    spans zero, a warning is raised.
+    References
+    ----------
+    Fisher transformation. Wikipedia.
+    https://en.wikipedia.org/wiki/Fisher_transformation
+    """
+
+    # Calculate Spearman rho estimate and set return accordingly.
+    rho, _ = spearmanr(x, y)
+    warning = False
+    increasing_bool = rho >= 0
+
+    # Run Fisher transform to get the rho CI, but handle rho=+/-1
+    if rho not in [-1.0, 1.0] and len(x) > 3:
+        F = 0.5 * math.log((1. + rho) / (1. - rho))
+        F_se = 1 / math.sqrt(len(x) - 3)
+
+        # Use a 95% CI, i.e., +/-1.96 S.E.
+        # https://en.wikipedia.org/wiki/Fisher_transformation
+        rho_0 = math.tanh(F - 1.96 * F_se)
+        rho_1 = math.tanh(F + 1.96 * F_se)
+
+        # Warn if the CI spans zero.
+        if np.sign(rho_0) != np.sign(rho_1):
+            warning = True
+
+    return warning, increasing_bool
 
 def dict2list(D, res):
 

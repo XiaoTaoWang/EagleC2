@@ -4,7 +4,9 @@ import tensorflow as tf
 from collections import defaultdict
 from sklearn.cluster import dbscan
 from eaglec.extractMatrix import check_sparsity
-from eaglec.utilities import distance_normaize_core, image_normalize, get_queue, dict2list, list2dict
+from joblib import Parallel, delayed
+from eaglec.utilities import distance_normaize_core, image_normalize, \
+    get_queue, dict2list, list2dict, SVblock
 
 def load_models(root_folder):
 
@@ -61,7 +63,7 @@ def predict(cache_folder, models, ref_gaps, prob_cutoff=0.75, max_gap=1, batch_s
     gap_removed = {}
     for res in original_predictions:
         sv_list = dict2list(original_predictions[res], res)
-        clustered = cluster_SVs(sv_list, r=1.5*res)
+        clustered = cluster_SVs(sv_list, r=3.5*res)
         gap_removed[res] = list2dict(check_gaps(clustered, ref_gaps, max_gap), res)
     
     return gap_removed
@@ -133,32 +135,7 @@ def remove_redundant_predictions(by_res):
                         new[tr][sv][k][(tx, ty)] = by_res[tr][sv][k][(tx, ty)]
     
     new[resolutions[-1]] = by_res[resolutions[-1]]
-    '''
-    # records the highest probability score across resolutions
-    SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
-    for tr in new:
-        for sv in new[tr]:
-            for k in new[tr][sv]:
-                for tx, ty in new[tr][sv][k]:
-                    sort_table = [(new[tr][sv][k][(tx, ty)].max(), tuple(new[tr][sv][k][(tx, ty)]))]
-                    for pair in mapping_table:
-                        if pair[0] != tr:
-                            continue
-                        if not sv in mapping_table[pair]:
-                            continue
-                        if not k in mapping_table[pair][sv]:
-                            continue
-                        if (tx, ty) in mapping_table[pair][sv][k]:
-                            sort_table.append((mapping_table[pair][sv][k][(tx, ty)].max(), tuple(mapping_table[pair][sv][k][(tx, ty)])))
-
-                    sort_table.sort(reverse=True)
-                    for item in sort_table:
-                        prob = np.r_[item[1]]
-                        maxi = prob.argmax()
-                        if SV_labels[maxi] == sv:
-                            new[tr][sv][k][(tx, ty)] = prob
-                            break
-    '''
+    
     return new
 
 def cluster_SVs(sv_list, r=15000):
@@ -227,8 +204,8 @@ def check_gaps(sv_list, ref_gaps, max_gap=2):
     
     return out
 
-def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
-                       ref_gaps, max_gap=2, w=15, baseline_prob=0.5):
+def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gaps,
+                       max_gap=2, w=15, baseline_prob=0.5, r_cutoff=0.64, nproc=4):
 
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
@@ -321,8 +298,98 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp,
         
         sv_list.extend(L)
     
-    SVs = cluster_SVs(sv_list, r=1.5*res_ref[-1])
+    SVs = cluster_SVs(sv_list, r=3.5*res_ref[-1])
     SVs = check_gaps(SVs, ref_gaps, max_gap)
+    SVs = filter_SVs(SVs, mcool, resolutions, balance, exp,
+                     r_cutoff=r_cutoff, nproc=nproc)
 
     return SVs
+
+def filter_core(sv, mcool, resolutions, balance, exp, r_cutoff):
+
+    ori_w = 100
+    D = defaultdict(list)
+    resolutions = sorted(resolutions)
+    clr = cooler.Cooler('{0}::resolutions/{1}'.format(mcool, resolutions[0]))
+    SV = SVblock(clr, sv, exp[resolutions[0]], balance=balance)
+    if len(SV.strands) > 1:
+        for res in resolutions:
+            label = 1
+            D[label].append(res)
+    else:
+        strand = SV.strands[0]
+        u_sort = []
+        d_sort = []
+        u_pool = {}
+        d_pool = {}
+        for res in resolutions:
+            clr = cooler.Cooler('{0}::resolutions/{1}'.format(mcool, res))
+            SV = SVblock(clr, sv, exp[res], balance=balance)
+            if SV.c1 != SV.c2:
+                w = min(ori_w, SV.p1, SV.p2, SV.chromsize1-SV.p1-1, SV.chromsize2-SV.p2-1)
+            else:
+                w = min(ori_w, SV.p1, SV.p2, SV.chromsize1-SV.p1-1, SV.chromsize2-SV.p2-1,
+                       (SV.p2-SV.p1)//2)
+            M = SV.get_matrices(strand, w)[1]
+            u_i, d_i, u_scores, d_scores = SV.detect_bounds(M)
+            u_sort.append((u_scores[u_i], (M.shape[0]-u_i)*res, res)) # u_i*res should be distance from the SV breaks
+            d_sort.append((d_scores[d_i], d_i*res, res))
+            u_pool[res] = [u_i, u_scores]
+            d_pool[res] = [d_i, d_scores]
+        
+        u_sort.sort(reverse=True)
+        d_sort.sort(reverse=True)
+        u_pos, u_r = u_sort[0][1:]
+        d_pos, d_r = d_sort[0][1:]
+        for res in resolutions:
+            clr = cooler.Cooler('{0}::resolutions/{1}'.format(mcool, res))
+            SV = SVblock(clr, sv, exp[res], balance=balance)
+            M = SV.get_matrices(strand, 100)[0]
+            usort = []
+            for i in range((u_pos-u_r)//res, int(np.ceil((u_pos+u_r*2)/res))):
+                t_i = M.shape[0] - i
+                if t_i in u_pool[res][1]:
+                    usort.append((u_pool[res][1][t_i], t_i))
+            if len(usort):
+                usort.sort(reverse=True)
+                u_i = usort[0][1]
+            else:
+                u_i = u_pool[res][0]
+            
+            dsort = []
+            for i in range((d_pos-d_r)//res, int(np.ceil((d_pos+d_r*2)/res))):
+                if i in d_pool[res][1]:
+                    dsort.append((d_pool[res][1][i], i))
+            if len(dsort):
+                dsort.sort(reverse=True)
+                d_i = dsort[0][1]
+            else:
+                d_i = d_pool[res][0]
+            
+            M = M[u_i:, :d_i]
+            label = SV.check_distance_decay(M, min_block_width=4, N=10,
+                                            dynamic_window_size=4,
+                                            min_point_num=10,
+                                            rscore_cutoff=r_cutoff)
+            D[label].append(res)
     
+    if len(D[1]) > 0:
+        label = min(D[1])
+    elif len(D[-1]) > 0:
+        label = -1
+    else:
+        label = 0
+    
+    sv = sv + [label]
+
+    return sv
+    
+def filter_SVs(SVs, mcool, resolutions, balance, exp, r_cutoff=0.64, nproc=4):
+    
+    queue = []
+    for sv in SVs:
+        queue.append((sv, mcool, resolutions, balance, exp, r_cutoff))
+    
+    results = Parallel(n_jobs=nproc)(delayed(filter_core)(*i) for i in queue)
+    
+    return results
