@@ -144,7 +144,7 @@ class SVblock(object):
         for score, pos in sort_table:
             check = False
             for si, ei in intervals:
-                if (si < pos <= ei) and (np.sign(curve[si]) != np.sign(curve[ei])):
+                if (si < pos <= ei) and (np.sign(curve[si]) != np.sign(curve[ei])) and (pos > 2) and (len(curve)-pos > 2):
                     check = True
                     break
             if check:
@@ -214,18 +214,19 @@ class SVblock(object):
                         slope = ln.coef_[0]
                         if (rscore > rscore_cutoff) and (slope > 0):
                             labels.append(1)
-                            if tX.size > X.size * 0.5:
-                                break
                         else:
                             labels.append(-1)
+                        
+                        if tX.size > X.size * 0.5:
+                            break
                     
                     if not len(labels):
                         correlation = 0
                     else:
-                        if min(labels) == -1:
-                            correlation = -1
-                        else:
+                        if sum(labels) >= 0:
                             correlation = 1
+                        else:
+                            correlation = -1
         
         return correlation
 

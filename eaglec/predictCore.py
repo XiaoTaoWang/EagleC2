@@ -329,7 +329,7 @@ def filter_core(sv, mcool, resolutions, balance, exp, r_cutoff):
                 w = min(ori_w, SV.p1, SV.p2, SV.chromsize1-SV.p1-1, SV.chromsize2-SV.p2-1)
             else:
                 w = min(ori_w, SV.p1, SV.p2, SV.chromsize1-SV.p1-1, SV.chromsize2-SV.p2-1,
-                       (SV.p2-SV.p1)//2)
+                       (SV.p2-SV.p1)//4)
             M = SV.get_matrices(strand, w)[1]
             u_i, d_i, u_scores, d_scores = SV.detect_bounds(M)
             u_sort.append((u_scores[u_i], (M.shape[0]-u_i)*res, res)) # u_i*res should be distance from the SV breaks
@@ -372,14 +372,22 @@ def filter_core(sv, mcool, resolutions, balance, exp, r_cutoff):
                                             min_point_num=10,
                                             rscore_cutoff=r_cutoff)
             D[label].append(res)
-    
+    '''
     if len(D[1]) > 0:
         label = min(D[1])
     elif len(D[-1]) > 0:
         label = -1
     else:
         label = 0
+    '''
+    label_map = {}
+    for k in D:
+        for r in D[k]:
+            label_map[r] = k
     
+    labels = ['{0},{1}'.format(r,k) for r,k in label_map.items()]
+    label = ';'.join(labels)
+
     sv = sv + [label]
 
     return sv

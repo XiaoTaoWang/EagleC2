@@ -54,7 +54,7 @@ def getargs():
                         Value Range: (0, 1]''')
     parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability cutoff
                         for filtering the original SV calls. Value Range: [0, 1]''')
-    parser.add_argument('--rscore-cutoff', default=0.64, type=float,
+    parser.add_argument('--rscore-cutoff', default=0.36, type=float,
                         help='''R-square cutoff to determine whether the distance-decay pattern
                         exists near an SV breakpoint.''')
     parser.add_argument('--allowed-gaps', default=2, type=int,
@@ -337,7 +337,7 @@ def run():
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
             if args.output_format == 'full':
                 out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+',
-                                     'original resolution', 'fine-mapped resolution', 'gap info'])+'\n')
+                                     'original resolution', 'fine-mapped resolution', 'gap info', 'distance decay'])+'\n')
             for line in SVs:
                 c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng, decay = line
                 if args.output_format == 'full':
