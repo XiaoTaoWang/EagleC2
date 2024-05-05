@@ -218,13 +218,13 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     x, y = x[mask], y[mask]
 
     candi = set()
-    singletons = set()
     bad_pixels= set()
     filter_min_width = 7 # hard-coded param
     filter_min_cluster_size = 25 # hard-coded param
     cutoff = 0.05 # hard-coded param
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
+        singletons = set()
         # iterative clustering
         coords = np.r_['1,2,0', x, y]
         values = np.array(nM[x, y]).ravel()
@@ -267,17 +267,19 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
             else:
                 tmp = set(zip(x_, y_))
                 singletons.update(tmp)
-                x_, y_ = np.r_[list(singletons)].T
-                x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=cutoff)
-                for xi, yi in zip(x_f, y_f):
-                    if yi - xi <= Ed.size:
-                        for i in range(-buff, buff+1):
-                            for j in range(-buff, buff+1):
-                                candi.add((xi+i, yi+j))
-                    else:
-                        for i in range(-buf, buf+1):
-                            for j in range(-buf, buf+1):
-                                candi.add((xi+i, yi+j))
+
+        if len(singletons) > 0:
+            x_, y_ = np.r_[list(singletons)].T
+            x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=cutoff)
+            for xi, yi in zip(x_f, y_f):
+                if yi - xi <= Ed.size:
+                    for i in range(-buff, buff+1):
+                        for j in range(-buff, buff+1):
+                            candi.add((xi+i, yi+j))
+                else:
+                    for i in range(-buf, buf+1):
+                        for j in range(-buf, buf+1):
+                            candi.add((xi+i, yi+j))
     else:
         for xi, yi in zip(x, y):
             for i in range(-buf, buf+1):
@@ -396,7 +398,94 @@ def apply_buff(candi, buff):
 
     return new
 
-def filter_inter_cluster_points(M, nM, weights_1, weights_2, x, y):
+def filter_inter_singletons(M, nM, weights_1, weights_2, x, y, thre=0.02, ww=3, pw=1):
+
+    mask = (x - ww >= 0) & (x + ww + 1 <= M.shape[0]) & \
+           (y - ww >= 0) & (y + ww + 1 <= M.shape[1])
+    x, y = x[mask], y[mask]
+    x_filtered = []
+    y_filtered = []
+    if x.size > 0:
+        seed = np.arange(-ww, ww+1)
+        delta = np.tile(seed, (seed.size, 1))
+        xxx = x.reshape((x.size, 1, 1)) + delta.T
+        yyy = y.reshape((y.size, 1, 1)) + delta
+        v = np.array(nM[xxx.ravel(), yyy.ravel()]).ravel()
+        vvv = v.reshape((x.size, seed.size, seed.size))
+        for i in range(x.size):
+            xi = x[i]
+            yi = y[i]
+            window = vvv[i]
+            window[np.isnan(window)] = 0
+            window[(ww-pw):(ww+pw+1), (ww-pw):(ww+pw+1)] = 0
+
+            nonzero = window.nonzero()
+            if nonzero[0].size / window.size < 0.08:
+                continue
+
+            E_ = window[nonzero].mean()
+            if not weights_1 is None:
+                evalue = E_ / (weights_1[xi] * weights_2[yi])
+            else:
+                evalue = E_
+            
+            Poiss = stats.poisson(evalue)
+            pvalue = Poiss.sf(M[xi, yi])
+            if pvalue < thre:
+                x_filtered.append(xi)
+                y_filtered.append(yi)
+    
+    x_filtered = np.r_[x_filtered]
+    y_filtered = np.r_[y_filtered]
+    
+    return x_filtered, y_filtered
+
+def filter_inter_cluster_points(M, nM, weights_1, weights_2, x, y, pw=1, min_points=10):
+
+    coords = set()
+    for xi, yi in zip(x, y):
+        for i in range(-pw, pw+1):
+            for j in range(-pw, pw+1):
+                if (xi+i > 0) and (xi+i < M.shape[0]) and (yi+j > 0) and (yi+j < M.shape[1]):
+                    v = nM[xi+i, yi+j]
+                    if np.isnan(v):
+                        continue
+                    if v == 0:
+                        continue
+                    coords.add((xi+i, yi+j))
+    
+    # correct the peak width for narrow clusters
+    if (x.max() - x.min() < (2*pw+1)) or (y.max() - y.min() < (2*pw+1)):
+        pw = 0
+
+    # calculate the p-values
+    singletons = set()
+    results = []
+    for xi, yi in zip(x, y):
+        peaks = set()
+        for i in range(-pw, pw+1):
+            for j in range(-pw, pw+1):
+                peaks.add((xi+i, yi+j))
+        
+        bg_coords = coords - peaks
+        if len(bg_coords) >= min_points:
+            x, y = np.r_[list(bg_coords)].T
+            E_ = nM[x, y].mean()
+
+            if not weights_1 is None:
+                evalue = E_ / (weights_1[xi] * weights_2[yi])
+            else:
+                evalue = E_
+    
+            Poiss = stats.poisson(evalue)
+            pvalue = Poiss.sf(M[xi, yi])
+            results.append((pvalue, xi, yi))
+        else:
+            singletons.add((xi, yi))
+    
+    return results, singletons
+
+def filter_inter_total(M, nM, weights_1, weights_2, x, y):
 
     results = []
     # avoid estimating the expected value using too many points
@@ -482,11 +571,20 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         coords = np.r_[list(candidates_pool)]
         x, y = coords.T
-        values = np.array(nM[x, y]).ravel()
-        mask = np.isfinite(values)
-        values = values[mask]
-        coords = coords[mask]
-        if len(coords) > min_samples:
+        table = filter_inter_total(M, nM, weights_1, weights_2, x, y)
+        x = []
+        y = []
+        for pv, xi, yi in table:
+            if pv < q_thre:
+                x.append(xi)
+                y.append(yi)
+        
+        if len(x) > min_samples:
+            singletons = set()
+            x = np.r_[x]
+            y = np.r_[y]
+            coords = np.r_[list(zip(x, y))]
+            values = np.array(nM[x, y]).ravel()
             # first round of clustering
             x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
                                                 min_samples=min_samples, max_cluster_size=max_cluster_size,
@@ -495,24 +593,31 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
             for ci in set(clusterer.labels_):
                 mask = clusterer.labels_ == ci
                 x_, y_ = x[mask], y[mask]
-                if ci == -1:
-                    tmp = remove_real_outliers(x_, y_)
-                    for xi, yi in tmp:
-                        candi.add((xi, yi))
-                    continue
-                else:
-                    triples = filter_inter_cluster_points(M, nM, weights_1, weights_2, x_, y_)
-                    for pv, xi, yi in triples:
+                if ci >= 0:
+                    table, tmp= filter_inter_cluster_points(M, nM, weights_1, weights_2, x_, y_)
+                    singletons.update(tmp)
+                    for pv, xi, yi in table:
                         if pv < cutoff:
                             candi.add((xi, yi))
                     
                     if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
                        (x_.size > filter_min_cluster_size):
-                        for pv, xi, yi in triples:
+                        for pv, xi, yi in table:
                             if pv > 0.2:
                                 for i in range(-buff, buff+1):
                                     for j in range(-buff, buff+1):
                                         bad_pixels.add((xi+i, yi+j))
+
+                else:
+                    tmp = set(zip(x_, y_))
+                    singletons.update(tmp)
+
+            if len(singletons) > 0:
+                x_, y_ = np.r_[list(singletons)].T
+                x_f, y_f = filter_inter_singletons(M, nM, weights_1, weights_2, x_, y_,
+                                                   thre=cutoff)
+                for xi, yi in zip(x_f, y_f):
+                    candi.add((xi, yi))
         else:
             candi = candidates_pool
     else:
