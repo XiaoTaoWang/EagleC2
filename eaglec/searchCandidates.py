@@ -20,14 +20,15 @@ def apply_buff(candi, nM):
         tmp = set()
         for i in range(-buf, buf+1):
             for j in range(-buf, buf+1):
-                v = nM[xi+i, yi+j]
-                tmp.add((xi+i, yi+j))
-                if np.isnan(v):
-                    v = 0
-                if v > rv:
-                    good.add((xi+i, yi+j))
-                if v < rv:
-                    bad.add((xi+i, yi+j))
+                if (xi+i > 0) and (xi+i < nM.shape[0]) and (yi+j > 0) and (yi+j < nM.shape[1]):
+                    v = nM[xi+i, yi+j]
+                    tmp.add((xi+i, yi+j))
+                    if np.isnan(v):
+                        v = 0
+                    if v > rv:
+                        good.add((xi+i, yi+j))
+                    if v < rv:
+                        bad.add((xi+i, yi+j))
                 
         if len(good):
             expanded.update(good)
@@ -304,7 +305,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     candi = apply_buff(candi, nM)
     bad_pixels = bad_pixels - candi
 
-    return c, candi, coords, clusterer, bad_pixels
+    return c, candi, bad_pixels
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, max_cluster_size=250,
