@@ -8,6 +8,34 @@ from eaglec.utilities import local_background
 
 log = logging.getLogger(__name__)
 
+def apply_buff(candi, nM):
+
+    expanded = set([t[:2] for t in candi])
+    for xi, yi, buf in candi:
+        rv = nM[xi, yi]
+        if np.isnan(rv):
+            rv = 0
+        good = set()
+        bad = set()
+        tmp = set()
+        for i in range(-buf, buf+1):
+            for j in range(-buf, buf+1):
+                v = nM[xi+i, yi+j]
+                tmp.add((xi+i, yi+j))
+                if np.isnan(v):
+                    v = 0
+                if v > rv:
+                    good.add((xi+i, yi+j))
+                if v < rv:
+                    bad.add((xi+i, yi+j))
+                
+        if len(good):
+            expanded.update(good)
+        else:
+            expanded.update(tmp)
+
+    return expanded
+
 def iterative_clustering(coords, values, min_cluster_size=4, min_samples=4,
                          max_cluster_size=100, cut_ratio=0.8, round=3):
     
@@ -245,17 +273,10 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
                 singletons.update(tmp)
                 for pv, xi, yi in filtered_table:
                     if pv < cutoff:
-                        tmp_candi = set()
                         if short_range:
-                            for i in range(-buff, buff+1):
-                                for j in range(-buff, buff+1):
-                                    tmp_candi.add((xi+i, yi+j))
+                            candi.add((xi, yi, buff))
                         else:
-                            for i in range(-buf, buf+1):
-                                for j in range(-buf, buf+1):
-                                    tmp_candi.add((xi+i, yi+j))
-                
-                        candi.update(tmp_candi)
+                            candi.add((xi, yi, buf))
 
                 if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
                    (x_.size > filter_min_cluster_size):
@@ -273,22 +294,17 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
             x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=cutoff)
             for xi, yi in zip(x_f, y_f):
                 if yi - xi <= Ed.size:
-                    for i in range(-buff, buff+1):
-                        for j in range(-buff, buff+1):
-                            candi.add((xi+i, yi+j))
+                    candi.add((xi, yi, buff))
                 else:
-                    for i in range(-buf, buf+1):
-                        for j in range(-buf, buf+1):
-                            candi.add((xi+i, yi+j))
+                    candi.add((xi, yi, buf))
     else:
         for xi, yi in zip(x, y):
-            for i in range(-buf, buf+1):
-                for j in range(-buf, buf+1):
-                    candi.add((xi+i, yi+j))
+            candi.add((xi, yi, buf))
     
+    candi = apply_buff(candi, nM)
     bad_pixels = bad_pixels - candi
 
-    return c, candi, bad_pixels
+    return c, candi, coords, clusterer, bad_pixels
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, max_cluster_size=250,
@@ -360,43 +376,6 @@ def remove_real_outliers(x, y, buff=1):
                     filtered.add((xi, yi))
     
     return filtered
-
-def apply_buff(candi, buff):
-
-    D = defaultdict(set)
-    neighbors = set([(0, 0), (0, 1), (1, 1),
-                     (0, -1), (-1, 0), (1, -1),
-                     (-1, -1), (-1, 1), (1, 0)])
-    Q1 = set([(0, 2), (1, 2), (2, 2),
-              (2, 1), (2, 0)])
-    Q2 = set([(-2, 0), (-2, 1), (-2, 2),
-              (-1, 2), (0, 2)])
-    Q3 = set([(-2, 0), (-2, -1), (-2, -2),
-              (-1, -2), (0, -2)])
-    Q4 = set([(0, -2), (1, -2), (2, -2),
-              (2, -1), (2, 0)])
-    for xi, yi in candi:
-        for i in range(-2, 3):
-            for j in range(-2, 3):
-                x = xi + i
-                y = yi + j
-                D[(x, y)].add((xi-x, yi-y))
-
-    new = set()
-    for k in D:
-        if len(D[k] & neighbors):
-            new.add(k)
-        if buff > 1:
-            if len(D[k] & Q1) > 1:
-                new.add(k)
-            if len(D[k] & Q2) > 1:
-                new.add(k)
-            if len(D[k] & Q3) > 1:
-                new.add(k)
-            if len(D[k] & Q4) > 1:
-                new.add(k)
-
-    return new
 
 def filter_inter_singletons(M, nM, weights_1, weights_2, x, y, thre=0.02, ww=3, pw=1):
 
@@ -598,7 +577,7 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                     singletons.update(tmp)
                     for pv, xi, yi in table:
                         if pv < cutoff:
-                            candi.add((xi, yi))
+                            candi.add((xi, yi, buff))
                     
                     if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
                        (x_.size > filter_min_cluster_size):
@@ -617,13 +596,15 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                 x_f, y_f = filter_inter_singletons(M, nM, weights_1, weights_2, x_, y_,
                                                    thre=cutoff)
                 for xi, yi in zip(x_f, y_f):
-                    candi.add((xi, yi))
+                    candi.add((xi, yi, buff))
         else:
-            candi = candidates_pool
+            for xi, yi in candidates_pool:
+                candi.add((xi, yi, buff))
     else:
-        candi = candidates_pool
+        for xi, yi in candidates_pool:
+            candi.add((xi, yi, buff))
     
-    candi = apply_buff(candi, buff=buff)
+    candi = apply_buff(candi, nM)
     bad_pixels = bad_pixels - candi
     
     return c1, c2, candi, bad_pixels
