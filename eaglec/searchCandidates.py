@@ -8,32 +8,13 @@ from eaglec.utilities import local_background
 
 log = logging.getLogger(__name__)
 
-def apply_buff(candi, nM):
+def apply_buff(candi):
 
-    expanded = set([t[:2] for t in candi])
+    expanded = set()
     for xi, yi, buf in candi:
-        rv = nM[xi, yi]
-        if np.isnan(rv):
-            rv = 0
-        good = set()
-        bad = set()
-        tmp = set()
         for i in range(-buf, buf+1):
             for j in range(-buf, buf+1):
-                if (xi+i > 0) and (xi+i < nM.shape[0]) and (yi+j > 0) and (yi+j < nM.shape[1]):
-                    v = nM[xi+i, yi+j]
-                    tmp.add((xi+i, yi+j))
-                    if np.isnan(v):
-                        v = 0
-                    if v > rv:
-                        good.add((xi+i, yi+j))
-                    if v < rv:
-                        bad.add((xi+i, yi+j))
-                
-        if len(good):
-            expanded.update(good)
-        else:
-            expanded.update(tmp)
+                expanded.add((xi+i, yi+j))
 
     return expanded
 
@@ -302,7 +283,7 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
         for xi, yi in zip(x, y):
             candi.add((xi, yi, buf))
     
-    candi = apply_buff(candi, nM)
+    candi = apply_buff(candi)
     bad_pixels = bad_pixels - candi
 
     return c, candi, bad_pixels
@@ -605,7 +586,7 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
         for xi, yi in candidates_pool:
             candi.add((xi, yi, buff))
     
-    candi = apply_buff(candi, nM)
+    candi = apply_buff(candi)
     bad_pixels = bad_pixels - candi
     
     return c1, c2, candi, bad_pixels
