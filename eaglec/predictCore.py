@@ -33,7 +33,7 @@ def convert2TF(images, batch_size=256):
 
 def predict(cache_folder, models, ref_gaps, prob_cutoff=0.75, max_gap=1, batch_size=256):
 
-    queue = get_queue(cache_folder, maxn=100000)
+    queue = get_queue(cache_folder, maxn=100000, pattern='collect*.pkl')
     original_predictions = {}
     SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
     for data in queue:
@@ -63,7 +63,7 @@ def predict(cache_folder, models, ref_gaps, prob_cutoff=0.75, max_gap=1, batch_s
     gap_removed = {}
     for res in original_predictions:
         sv_list = dict2list(original_predictions[res], res)
-        clustered = cluster_SVs(sv_list, r=3.5*res)
+        clustered = cluster_SVs(sv_list, r=2*res)
         gap_removed[res] = list2dict(check_gaps(clustered, ref_gaps, max_gap), res)
     
     return gap_removed
@@ -205,7 +205,8 @@ def check_gaps(sv_list, ref_gaps, max_gap=2):
     return out
 
 def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gaps,
-                       max_gap=2, w=15, baseline_prob=0.5, r_cutoff=0.64, nproc=4):
+                       cache_folder, max_gap=2, w=15, baseline_prob=0.5, r_cutoff=0.64,
+                       nproc=4):
 
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
@@ -214,6 +215,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
     else:
         sv_list = []
 
+    batch_size = 10000
     for i in range(len(res_queue)):
         tr = res_queue[i]
         if tr == res_ref[-1]:
@@ -228,16 +230,13 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
             uri = os.path.join('{0}::resolutions/{1}'.format(mcool, qr))
             clr = cooler.Cooler(uri)
 
-            images = []
-            coords = []
-            index_count = 0
-            index_map = defaultdict(list)
+            data = []
             info_map = {}
             line_map = {}
+            count = 0
             for k, line in enumerate(L):
                 line_map[k] = line
                 info_map[k] = list(line[4:])
-                index_count = len(images)
                 c1, p1, c2, p2 = line[:4]
                 s_l = range((p1-tr)//qr, int(np.ceil((p1+tr*2)/qr)))
                 e_l = range((p2-tr)//qr, int(np.ceil((p2+tr*2)/qr)))
@@ -263,30 +262,44 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
                             M = distance_normaize_core(M, exp[qr][c1], x, y, w)
                         
                         M = image_normalize(M)
-                        images.append(M)
-                        coords.append((c1, x*qr, c2, y*qr))
-                        index_map[k].append(index_count)
-                        index_count += 1
-            
+                        data.append((M, (c1, x*qr, c2, y*qr), k))
+                        count += 1
+                        if len(data) > batch_size:
+                            outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))
+                            joblib.dump(data, outfil, compress=('xz', 3))
+                            data = []
+
+            if len(data):
+                outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))
+                joblib.dump(data, outfil, compress=('xz', 3))
+
             nL = []
-            if len(images):
-                images = np.r_[images]
-                images = convert2TF(images, 256)
-                prob_pool = np.stack([model.predict(images) for model in models])
-                prob_mean = prob_pool.mean(axis=0)[:,:6]
-                for k in index_map:
-                    coords_tmp = [coords[i_] for i_ in index_map[k]]
-                    if len(coords_tmp):
-                        info = info_map[k]
-                        idx = np.argmax(info[:-2])
-                        prob_tmp = prob_mean[index_map[k]]
-                        best_i = prob_tmp[:,idx].argmax()
-                        if prob_tmp[best_i][idx] > baseline_prob:
-                            info[-1] = qr
-                            #info[:-2] = list(prob_tmp[best_i])
-                            nL.append(coords_tmp[best_i] + tuple(info))
-                        else:
-                            sv_list.append(line_map[k])
+            if count:
+                coords = []
+                keys = []
+                probs = []
+                queue = get_queue(cache_folder, maxn=100000, pattern='refine.{0}_{1}_*.pkl'.format(tr, qr))
+                for data in queue:
+                    coords.extend([d[1] for d in data])
+                    keys.extend([d[2] for d in data])
+                    images = np.r_[[d[0] for d in data]]
+                    images = convert2TF(images, batch_size=256)
+                    prob_pool = np.stack([model.predict(images) for model in models])
+                    prob_mean = prob_pool.mean(axis=0)[:,:6].tolist()
+                    probs.extend(prob_mean)
+                probs = np.r_[probs]
+                keys = np.r_[keys]
+                for k in set(keys):
+                    indices = np.where(keys==k)[0]
+                    coords_tmp = [coords[i_] for i_ in indices]
+                    info = info_map[k]
+                    idx = np.argmax(info[:-2])
+                    prob_tmp = probs[indices]
+                    best_i = prob_tmp[:,idx].argmax()
+                    if prob_tmp[best_i][idx] > baseline_prob:
+                        info[-1] = qr
+                        #info[:-2] = list(prob_tmp[best_i])
+                        nL.append(coords_tmp[best_i] + tuple(info))
                     else:
                         sv_list.append(line_map[k])
             else:
@@ -298,7 +311,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
         
         sv_list.extend(L)
     
-    SVs = cluster_SVs(sv_list, r=3.5*res_ref[-1])
+    SVs = cluster_SVs(sv_list, r=2*res_ref[-1])
     SVs = check_gaps(SVs, ref_gaps, max_gap)
     SVs = filter_SVs(SVs, mcool, resolutions, balance, exp,
                      r_cutoff=r_cutoff, nproc=nproc)
@@ -372,14 +385,7 @@ def filter_core(sv, mcool, resolutions, balance, exp, r_cutoff):
                                             min_point_num=10,
                                             rscore_cutoff=r_cutoff)
             D[label].append(res)
-    '''
-    if len(D[1]) > 0:
-        label = min(D[1])
-    elif len(D[-1]) > 0:
-        label = -1
-    else:
-        label = 0
-    '''
+    
     label_map = {}
     for k in D:
         for r in D[k]:

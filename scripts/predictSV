@@ -331,8 +331,8 @@ def run():
 
         logger.info('Fine-map original SV calls at higher resolutions ...')
         SVs = refine_predictions(original_predictions, resolutions, models, args.mcool, balance,
-                                 expected_values, gaps, max_gap=args.allowed_gaps, w=15,
-                                 baseline_prob=args.prob_cutoff, r_cutoff=args.rscore_cutoff,
+                                 expected_values, gaps, cache_folder, max_gap=args.allowed_gaps,
+                                 w=15, baseline_prob=args.prob_cutoff, r_cutoff=args.rscore_cutoff,
                                  nproc=args.nproc)
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
             if args.output_format == 'full':
