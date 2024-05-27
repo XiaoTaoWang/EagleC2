@@ -312,7 +312,11 @@ def list2dict(L, res):
 
 def get_queue(cache_folder, maxn=100000, pattern='collect*.pkl'):
 
-    files = glob.glob(os.path.join(cache_folder, pattern))
+    if type(pattern) == list:
+        files = pattern
+    else:
+        files = glob.glob(os.path.join(cache_folder, pattern))
+        
     data_collect = []
     for f in files:
         extract = joblib.load(f)
