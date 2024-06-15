@@ -10,7 +10,7 @@ from eaglec.utilities import distance_normaize_core, image_normalize, \
 
 def load_models(root_folder):
 
-    model_paths = glob.glob(os.path.join(root_folder, '*'))
+    model_paths = glob.glob(os.path.join(root_folder, '*.keras'))
     models = []
     for f in model_paths:
         models.append(tf.keras.models.load_model(f))

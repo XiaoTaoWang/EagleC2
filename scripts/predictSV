@@ -52,15 +52,18 @@ def getargs():
                         feeding the images into the CNN models. Tuning down this cutoff can
                         greatly accelerate the program but may reduce sensitivity.
                         Value Range: (0, 1]''')
-    parser.add_argument('--prob-cutoff', default=0.5, type=float, help='''Probability cutoff
+    parser.add_argument('--prob-cutoff-1', default=0.5, type=float, help='''Probability cutoff
                         for filtering the original SV calls. Value Range: [0, 1]''')
+    parser.add_argument('--prob-cutoff-2', default=0.1, type=float, help='''Probability cutoff
+                        used to determine the more precise coordinates of original SV calls at finer
+                        resolutions. Value Range: [0, 1]''')
     parser.add_argument('--allowed-gaps', default=2, type=int,
                         help='''The maximum number of gap bins allowed near the SV breakpoints.''')
     parser.add_argument('-p', '--nproc', default=8, type=int,
                         help='The maximum number of processes to be allocated.')
     # specific to intra-chromosomal interactions
     group_1 = parser.add_argument_group(title = 'Parameters for filtering intra-chromosomal candidates:')
-    group_1.add_argument('--intra-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
+    group_1.add_argument('--intra-qvalue-cutoff', default=0.03, type=float, help='''Q-value cutoff
                         for pre-filtering intra-chromosomal pixels before feeding images into the
                         CNN models. Lowering this value can speed up the program but may reduce
                         sensitivity. Value Range: (0, 1]''')
@@ -98,7 +101,7 @@ def getargs():
                         pixels, potentially enhancing sensitivity but significantly slowing down the program.''')
     # specific to inter-chromosomal interactions
     group_2 = parser.add_argument_group(title = 'Parameters for filtering inter-chromosomal candidates:')
-    group_2.add_argument('--inter-qvalue-cutoff', default=0.02, type=float, help='''Q-value cutoff
+    group_2.add_argument('--inter-qvalue-cutoff', default=0.03, type=float, help='''Q-value cutoff
                         for pre-filtering inter-chromosomal pixels before feeding images into the
                         CNN models. Value Range: (0, 1]''')
     group_2.add_argument('--inter-min-per', default=50, type=float,
@@ -170,7 +173,8 @@ def run():
                    '# Reference Genome = {0}'.format(args.genome),
                    '# Included Chromosomes = {0}'.format(args.chroms),
                    '# Entropy Cutoff = {0}'.format(args.entropy_cutoff),
-                   '# Probability Cutoff = {0}'.format(args.prob_cutoff),
+                   '# Probability Cutoff 1 = {0}'.format(args.prob_cutoff_1),
+                   '# Probability Cutoff 2 = {0}'.format(args.prob_cutoff_2),
                    '# Allowed Number of Gap Bins = {0}'.format(args.allowed_gaps),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
@@ -321,7 +325,7 @@ def run():
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             gaps[res] = load_gap(clr, chroms, ref_genome=args.genome, balance=balance)
 
-        original_predictions = predict(cache_folder, models, gaps, prob_cutoff=args.prob_cutoff,
+        original_predictions = predict(cache_folder, models, gaps, prob_cutoff=args.prob_cutoff_1,
                                        max_gap=args.allowed_gaps, batch_size=256)
         logger.info('Done')
 
@@ -331,7 +335,7 @@ def run():
                     outfil, compress=('xz', 3))
         SVs = refine_predictions(original_predictions, resolutions, models, args.mcool, balance,
                                  expected_values, gaps, cache_folder, max_gap=args.allowed_gaps,
-                                 w=15, baseline_prob=args.prob_cutoff)
+                                 w=15, baseline_prob=args.prob_cutoff_2)
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
             if args.output_format == 'full':
                 out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+',
