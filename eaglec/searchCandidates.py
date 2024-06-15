@@ -228,9 +228,6 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
     x, y = x[mask], y[mask]
 
     candi = set()
-    bad_pixels= set()
-    filter_min_width = 7 # hard-coded param
-    filter_min_cluster_size = 25 # hard-coded param
     cutoff = 0.05 # hard-coded param
     buf = buff - 1
     if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
@@ -259,14 +256,6 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
                             candi.add((xi, yi, buff))
                         else:
                             candi.add((xi, yi, buf))
-
-                if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                   (x_.size > filter_min_cluster_size):
-                    for pv, xi, yi in filtered_table:
-                        if pv > 0.2:
-                            for i in range(-buf, buf+1):
-                                for j in range(-buf, buf+1):
-                                    bad_pixels.add((xi+i, yi+j))
             else:
                 tmp = set(zip(x_, y_))
                 singletons.update(tmp)
@@ -284,9 +273,8 @@ def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_clust
             candi.add((xi, yi, buf))
     
     candi = apply_buff(candi)
-    bad_pixels = bad_pixels - candi
 
-    return c, candi, bad_pixels
+    return c, candi
 
 def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
                            min_cluster_size=3, min_samples=3, max_cluster_size=250,
@@ -300,13 +288,11 @@ def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
     
     results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
     bychrom = {}
-    bychrom_bad = {}
-    for c, candi, bad_pixels in results:
+    for c, candi in results:
         if len(candi):
             bychrom[(c, c)] = candi
-            bychrom_bad[(c, c)] = bad_pixels
     
-    return bychrom, bychrom_bad
+    return bychrom
 
 def generage_bin_edges(axis_size, w):
 
@@ -525,9 +511,6 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
         weights_2 = None
 
     candi = set()
-    bad_pixels = set()
-    filter_min_width = 7 # hard-coded param
-    filter_min_cluster_size = 25 # hard-coded param
     cutoff = 0.05
     if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
         coords = np.r_[list(candidates_pool)]
@@ -560,15 +543,6 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
                     for pv, xi, yi in table:
                         if pv < cutoff:
                             candi.add((xi, yi, buff))
-                    
-                    if (x_.max() - x_.min() > filter_min_width) and (y_.max() - y_.min() > filter_min_width) and \
-                       (x_.size > filter_min_cluster_size):
-                        for pv, xi, yi in table:
-                            if pv > 0.2:
-                                for i in range(-buff, buff+1):
-                                    for j in range(-buff, buff+1):
-                                        bad_pixels.add((xi+i, yi+j))
-
                 else:
                     tmp = set(zip(x_, y_))
                     singletons.update(tmp)
@@ -587,9 +561,8 @@ def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
             candi.add((xi, yi, buff))
     
     candi = apply_buff(candi)
-    bad_pixels = bad_pixels - candi
     
-    return c1, c2, candi, bad_pixels
+    return c1, c2, candi
 
 def select_inter_candidate(clr, chroms, balance, windows=[3,5], min_per=50,
                            q_thre=0.01, min_cluster_size=4, min_samples=4,
@@ -605,13 +578,11 @@ def select_inter_candidate(clr, chroms, balance, windows=[3,5], min_per=50,
     
     results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
     bychrom = {}
-    bychrom_bad = {}
-    for c1, c2, candi, bad_pixels in results:
+    for c1, c2, candi in results:
         if len(candi):
             bychrom[(c1, c2)] = candi
-            bychrom_bad[(c1, c2)] = bad_pixels
     
-    return bychrom, bychrom_bad
+    return bychrom
 
 def cross_resolution_filter(byres, byres_bad, min_dis=50):
 

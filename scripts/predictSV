@@ -206,7 +206,7 @@ def run():
         import cooler, time, os, tempfile, joblib
         import numpy as np
         from eaglec.utilities import calculate_expected, load_gap
-        from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate, cross_resolution_filter
+        from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate
         from eaglec.extractMatrix import collect_images
         from eaglec.predictCore import load_models, predict, refine_predictions
 
@@ -251,7 +251,6 @@ def run():
         # intra candidates
         logger.info('Searching for intra-chromosomal candidates ...')
         intra = {}
-        intra_bad = {}
         extend_sizes = [int(i) for i in args.intra_extend_size.split(',')]
         extend_size_map = dict(zip(resolutions, extend_sizes))
         for res in resolutions:
@@ -266,8 +265,7 @@ def run():
                                              decay_rate=args.intra_decay_rate,
                                              niter=args.intra_niter, buff=extend_size_map[res],
                                              nproc=args.nproc, highres=False)
-                intra[res] = tmp[0]
-                intra_bad[res] = tmp[1]
+                intra[res] = tmp
             else:
                 tmp = select_intra_candidate(clr, chroms, balance, expected_values[res], k=args.max_dis,
                                              q_thre=args.intra_qvalue_cutoff, minv=args.intra_min,
@@ -277,14 +275,10 @@ def run():
                                              decay_rate=args.intra_decay_rate,
                                              niter=args.intra_niter, buff=extend_size_map[res],
                                              nproc=args.nproc, highres=True)
-                intra[res] = tmp[0]
-                intra_bad[res] = tmp[1]
+                intra[res] = tmp
         
         intra_counts = count_candidates(intra)
         logger.info('Totally detected {0} intra-chromosomal candidates'.format(intra_counts[1]))
-        #filtered_intra = cross_resolution_filter(intra, intra_bad, min_dis=50)
-        #intra_counts = count_candidates(filtered_intra)
-        #logger.info('{0} intra-chromosomal candidates are retained after filtering'.format(intra_counts[1]))
         logger.info('The number of intra-chromosomal candidates by resolution: {0}'.format(intra_counts[0]))
 
         filtered_intra = intra
@@ -292,7 +286,6 @@ def run():
         # inter candidates
         logger.info('Searching for inter-chromosomal candidates ...')
         inter = {}
-        inter_bad = {}
         extend_sizes = [int(i) for i in args.inter_extend_size.split(',')]
         extend_size_map = dict(zip(resolutions, extend_sizes))
         for res in resolutions:
@@ -304,14 +297,10 @@ def run():
                                              min_samples=args.inter_min_samples, max_cluster_size=args.inter_max_cluster_size,
                                              decay_rate=args.inter_decay_rate, niter=args.inter_niter,
                                              buff=extend_size_map[res], nproc=args.nproc)
-                inter[res] = tmp[0]
-                inter_bad[res] = tmp[1]
+                inter[res] = tmp
         
         inter_counts = count_candidates(inter)
         logger.info('Totally detected {0} inter-chromosomal candidates'.format(inter_counts[1]))
-        #filtered_inter = cross_resolution_filter(inter, inter_bad, min_dis=50)
-        #inter_counts = count_candidates(filtered_inter)
-        #logger.info('{0} inter-chromosomal candidates are retained after filtering'.format(inter_counts[1]))
         logger.info('The number of inter-chromosomal candidates by resolution: {0}'.format(inter_counts[0]))
 
         filtered_inter = inter
