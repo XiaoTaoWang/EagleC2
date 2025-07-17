@@ -5,7 +5,7 @@
 
 ## Required modules
 
-import argparse, sys, logging, logging.handlers, eaglec
+import argparse, sys, logging, eaglec, os
 
 currentVersion = eaglec.__version__
 
@@ -211,7 +211,7 @@ def run():
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
             logger.info('Running on CPU only.')
 
-        import cooler, time, os, tempfile, joblib
+        import cooler, time, tempfile, joblib
         import numpy as np
         from eaglec.utilities import calculate_expected, load_gap
         from eaglec.searchCandidates import select_intra_candidate, select_inter_candidate
