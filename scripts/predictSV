@@ -54,13 +54,16 @@ def getargs():
                         Value Range: (0, 1]''')
     parser.add_argument('--prob-cutoff-1', default=0.5, type=float, help='''Probability cutoff
                         for filtering the original SV calls. Value Range: [0, 1]''')
-    parser.add_argument('--prob-cutoff-2', default=0.1, type=float, help='''Probability cutoff
+    parser.add_argument('--prob-cutoff-2', default=0.5, type=float, help='''Probability cutoff
                         used to determine the more precise coordinates of original SV calls at finer
                         resolutions. Value Range: [0, 1]''')
     parser.add_argument('--allowed-gaps', default=2, type=int,
                         help='''The maximum number of gap bins allowed near the SV breakpoints.''')
     parser.add_argument('-p', '--nproc', default=8, type=int,
                         help='The maximum number of processes to be allocated.')
+    parser.add_argument('--cpu', action='store_true',
+                        help='''If this flag is set, the program will run entirely on the CPU,
+                        even if a GPU is available.''')
     # specific to intra-chromosomal interactions
     group_1 = parser.add_argument_group(title = 'Parameters for filtering intra-chromosomal candidates:')
     group_1.add_argument('--intra-qvalue-cutoff', default=0.03, type=float, help='''Q-value cutoff
@@ -181,7 +184,7 @@ def run():
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
                    '# Output Format = {0}'.format(args.output_format),
-                   '# Log File Name = {0}'.format(logfil),
+                   '# CPU Only = {0}'.format(args.cpu),
                    '# Qvalue Cutoff (Cis) = {0}'.format(args.intra_qvalue_cutoff),
                    '# Minimum Cis-contact Strength (Cis) = {0}'.format(args.intra_min),
                    '# Maximum Genomic Distance (Cis) = {0}'.format(args.max_dis),
@@ -202,6 +205,11 @@ def run():
                    ]
         argtxt = '\n'.join(arglist)
         logger.info('\n' + argtxt)
+
+        if args.cpu:
+            # Force TensorFlow to use CPU only
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+            logger.info('Running on CPU only.')
 
         import cooler, time, os, tempfile, joblib
         import numpy as np
