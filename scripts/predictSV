@@ -206,10 +206,13 @@ def run():
         argtxt = '\n'.join(arglist)
         logger.info('\n' + argtxt)
 
+        import tensorflow as tf
+
         if args.cpu:
             # Force TensorFlow to use CPU only
-            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+            tf.config.set_visible_devices([], 'GPU')
             logger.info('Running on CPU only.')
+            #logger.info('Visible devices: {0}'.format(tf.config.get_visible_devices('GPU')))
 
         import cooler, time, tempfile, joblib
         import numpy as np
