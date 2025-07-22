@@ -21,11 +21,6 @@ applications in genome research, cancer biology, diagnostics, and therapeutic de
 .. image:: ./images/framework.png
         :align: center
 
-Unique features of EagleC2
-==========================
-.. image:: ./images/table1.png
-        :align: center
-
 Navigation
 ==========
 - `Installation`_
@@ -96,51 +91,51 @@ terminal window to view the basic usage of each command.
 
   *predictSV* is the core command for predicting SVs from chromatin contact maps.
 
-  Required inputs:
+  **Required inputs:**
+
+  1. Path to a .mcool file – This is a multi-resolution format for storing contact
+  matrices. See `cooler <https://github.com/open2c/cooler>`_ for details. If you only have
+  .hic files (see `Juicer <https://github.com/aidenlab/juicer>`_), you can convert them
+  to .mcool using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_ or `HiClift <https://github.com/XiaoTaoWang/HiCLift>`_.
+
+  2. Path to the folder containing the pre-trained models.
   
-  1. Path to a .mcool file (a format to storing contact matrices at multiple resolutions,
-  refer to `cooler <https://github.com/open2c/cooler>`_ if you are not familiar with this
-  format). If you only have `.hic files <https://github.com/aidenlab/juicer>`_, consider
-  converting your files to the ".mcool" format using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_
-  or `HiClift <https://github.com/XiaoTaoWang/HiCLift>`_.
-  2. Path to the folder containing the pretrained models.
-  
-  And the predicted SVs will be outputed to a TXT file with 13 columns: breakpoint coordinates (
-  chrom1, pos1, chrom2, pos2), probability values for each fusion type (++, +-, -+, --, ++/--,
-  and +-/-+), the resolution of the contact matrix from which the SV is originally predicted, the
-  finest resolution where the SV can be mapped, and the number of bad bins near the SV breakpoints.
+  **Output:**
+
+  The predicted SVs will be written to a .txt file with 13 columns:
+  - Breakpoint coordinates (chrom1, pos1, chrom2, pos2)
+  - Probability values for each SV type (++, +-, -+, --, ++/--, and +-/-+)
+  - The resolution of the contact matrix from which the SV was originally predicted
+  - The finest resolution to which the SV can be refined
+  - The number of bad bins near the SV breakpoints
 
 - reformatSV
 
-  This command takes the output from the predictSV command and reformats it into a format suitable
-  for `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_.
+  Reformats the output from *predictSV* into a format compatible with `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_.
 
 - plot-SVbreaks
 
-  This command plots a local contact map centered on the provided SV breakpoint coordinates. For
+  Plots a local contact map centered on the provided SV breakpoint coordinates. For
   intra-chromosomal SVs, contact counts will be distance-normalized. All contact matrices will
   be min-max scaled to the range [0, 1].
 
-  This command is useful when you want to visually check whether there are expected contact patterns
-  around the input SV breakpoints. The breakpoints should be in the format: chrom1,pos1,chrom2,pos2,
-  which can be from any software that detects SVs, including those developed for short-/long-read
-  whole genome sequencing.
+  The input breakpoint coordinates should follow the format: "chrom1,pos1,chrom2,pos2".
 
+  This is useful for visually checking whether the expected contact patterns are present
+  around SV breakpoints, including those identified by short-read or long-read whole-genome
+  sequencing methods.
+  
 - annotate-gene-fusion
 
-  This command can be used to annotate gene fusion events for a list of SV breakpoints. The input to
-  this command is an SV file with breakpoint coordinate information (chrom1, pos1, chrom2, pos2)
-  in the first four columns and a release number of ensembl genes.
+  Annotates gene fusion events for a list of SV breakpoints.
 
 - plot-interSVs
 
-  This command can be used to plot a contact map for the specified chromosomes, with predicted SVs
-  marked.
+  Plots a contact map for a specified set of chromosomes, with predicted SVs marked.
 
 - plot-intraSVs
 
-  This command can be used to plot a contact map for the specified genomic region, with predicted
-  SVs marked.
+  Plots a contact map for a specified genomic region, with predicted SVs marked.
 
 
 Quick Start
