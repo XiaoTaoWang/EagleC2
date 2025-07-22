@@ -98,13 +98,12 @@ terminal window to view the basic usage of each command.
   matrices. See `cooler <https://github.com/open2c/cooler>`_ for details. If you only have
   .hic files (see `Juicer <https://github.com/aidenlab/juicer>`_), you can convert them
   to .mcool using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_ or `HiClift <https://github.com/XiaoTaoWang/HiCLift>`_.
-
   2. Path to the folder containing the pre-trained models.
   
   Output:
 
   The predicted SVs will be written to a .txt file with 13 columns:
-  
+
   - Breakpoint coordinates (chrom1, pos1, chrom2, pos2)
   - Probability values for each SV type (++, +-, -+, --, ++/--, and +-/-+)
   - The resolution of the contact matrix from which the SV was originally predicted
