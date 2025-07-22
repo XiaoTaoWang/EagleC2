@@ -10,8 +10,8 @@ currentVersion = eaglec.__version__
 
 def getargs():
     ## Construct an ArgumentParser object for command-line arguments
-    parser = argparse.ArgumentParser(description='''Annotate gene fusion events for a list of
-                                     SV breakpoints''',
+    parser = argparse.ArgumentParser(description='''Annotate gene fusion events based on a list
+                                     of SV breakpoints''',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
     # Version
@@ -19,18 +19,18 @@ def getargs():
                         version=' '.join(['%(prog)s',currentVersion]),
                         help='Print version number and exit.')
 
-    parser.add_argument('--sv-file', help='''Path to a TXT file containing breakpoint coordinate
-                        information (chrom1, pos1, chrom2, pos2) in the first four columns. Different
-                        columns in the file must be separated by tab or space.''')
-    parser.add_argument('--output-file', help='''Output file name. The program will append a column
-                        containing detected gene fusions to the input SV file. If multiple fusion events
-                        are detected, they will be separated by ",". If no fusion events are detected for
-                        an SV, that row will not be reported in the output file.''')
-    parser.add_argument('--buff-size', type=int, default=10000, help='''Genomic span (in base pair)
-                        of the breakpoints for each SV. A gene will be considered at the breakpoint
-                        if its interval is overlapped with the extended breakpoint region.''')
-    parser.add_argument('--skip-rows', default=0, type=int,
-                        help='''Number of leading lines in the loop file to skip.''')
+    parser.add_argument('--sv-file', help='''Path to a TXT file containing breakpoint coordinates,
+                        with chrom1, pos1, chrom2, and pos2 in the first four columns. Columns must
+                        be separated by tabs or spaces.''')
+    parser.add_argument('--output-file', help='''Output file name. A new column containing detected gene
+                        fusions will be appended as the last column of each SV record. Multiple fusion
+                        events will be separated by commas. SVs without any fusion events will be excluded
+                        from the output.''')
+    parser.add_argument('--buff-size', type=int, default=10000, help='''Genomic span (in base pairs)
+                        to extend around each SV breakpoint. A gene will be considered at the breakpoint
+                        if its interval overlaps with the extended region.''')
+    parser.add_argument('--skip-rows', default=1, type=int,
+                        help='''Number of initial lines to skip in the input file.''')
     parser.add_argument('--ensembl-release', default=93, type=int,
                         help='''Ensembl release number. Refer to https://github.com/openvax/pyensembl
                         for details.''')

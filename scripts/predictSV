@@ -39,14 +39,6 @@ def getargs():
                         chromosomes will be included. Specially, "#" stands for chromosomes
                         with numerical labels. "--chroms" with zero argument will include
                         all chromosome data.''')
-    parser.add_argument('--output-format', default='full', choices=['full', 'NeoLoopFinder'],
-                        help='''Format of the reported SVs. full: This format includes 14 columns
-                        for each SV. It provides information such as breakpoint coordinates, probability
-                        values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the resolution
-                        of the contact matrix from which the SV is originally predicted, the finest
-                        resolution where the SV can be mapped, the number of bad bins near the SV
-                        breakpoints, and whether the distance-decay pattern can be detected. NeoLoopFinder:
-                        This format includes 6 columns that can be directly used as the NeoLoopFinder input.''')
     parser.add_argument('--entropy-cutoff', default=0.97, type=float, help='''Entropy cutoff.
                         We utilize a pre-filtering procedure based on Shannon entropy before
                         feeding the images into the CNN models. Tuning down this cutoff can
@@ -183,7 +175,6 @@ def run():
                    '# Allowed Number of Gap Bins = {0}'.format(args.allowed_gaps),
                    '# Number of Allocated Processes = {0}'.format(args.nproc),
                    '# Output File Prefix = {0}'.format(args.output_prefix),
-                   '# Output Format = {0}'.format(args.output_format),
                    '# CPU Only = {0}'.format(args.cpu),
                    '# Qvalue Cutoff (Cis) = {0}'.format(args.intra_qvalue_cutoff),
                    '# Minimum Cis-contact Strength (Cis) = {0}'.format(args.intra_min),
@@ -343,29 +334,11 @@ def run():
                                  expected_values, gaps, cache_folder, max_gap=args.allowed_gaps,
                                  w=15, baseline_prob=args.prob_cutoff_2)
         with open('{0}.SV_calls.txt'.format(args.output_prefix), 'w') as out:
-            if args.output_format == 'full':
-                out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+',
-                                     'original resolution', 'fine-mapped resolution', 'gap info'])+'\n')
+            out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', '++', '+-', '-+', '--', '++/--', '+-/-+',
+                                    'original resolution', 'fine-mapped resolution', 'gap info'])+'\n')
             for line in SVs:
                 c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng = line
-                if args.output_format == 'full':
-                    out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\t{11}\t{12}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng))
-                else:
-                    strands = ['++', '+-', '-+', '--', '++/--', '+-/-+']
-                    probs = np.r_[[prob1, prob2, prob3, prob4, prob5, prob6]]
-                    idx = np.argmax(probs)
-                    strand_list = strands[idx].split('/')
-                    for strand in strand_list:
-                        annot = 'translocation'
-                        if c1 == c2:
-                            if strand == '+-':
-                                annot = 'deletion'
-                            elif strand == '-+':
-                                annot = 'duplication'
-                            elif strand in ['++', '--']:
-                                annot = 'inversion'
-
-                        out.write('\t'.join([c1, c2, strand, str(p1), str(p2), annot])+'\n')
+                out.write('{0}\t{1}\t{2}\t{3}\t{4:.4g}\t{5:.4g}\t{6:.4g}\t{7:.4g}\t{8:.4g}\t{9:.4g}\t{10}\t{11}\t{12}\n'.format(c1, p1, c2, p2, prob1, prob2, prob3, prob4, prob5, prob6, res1, res2, ng))
 
         logger.info('Done')
 

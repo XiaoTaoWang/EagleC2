@@ -230,7 +230,6 @@ class SVblock(object):
         
         return correlation
 
-
 def check_increasing(x, y):
     """Determine whether y is monotonically correlated with x.
     y is found increasing or decreasing with respect to x based on a Spearman
@@ -277,6 +276,14 @@ def check_increasing(x, y):
             warning = True
 
     return warning, increasing_bool
+
+def find_matched_resolution(expected_values, res):
+
+    res_list = list(expected_values.keys())
+    diff = np.abs(res - np.r_[res_list])
+    idx = np.argmin(diff)
+
+    return res_list[idx]
 
 def dict2list(D, res):
 

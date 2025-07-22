@@ -6,8 +6,8 @@ currentVersion = eaglec.__version__
 
 def getargs():
     ## Construct an ArgumentParser object for command-line arguments
-    parser = argparse.ArgumentParser(description='''Plot a local intra-chromosomal contact map
-                                     with predicted SVs marked on it.''',
+    parser = argparse.ArgumentParser(description='''Plot a contact map for the specified genomic region,
+                                     with predicted SVs marked.''',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     
     # Version
@@ -16,8 +16,12 @@ def getargs():
                         help='Print version number and exit.')
 
     parser.add_argument('--cool-uri', help='''Cool URI.''')
-    parser.add_argument('--full-sv-file', help='''Path to an SV file outputed from predictSV
-                        or predictSV-single-resolution in "full" format.''')
+    parser.add_argument('--sv-file', help='''Path to the a file outputted by the predictSV command.
+                        This file should includes 13 columns for each SV, including breakpoint coordinates,
+                        probability values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the
+                        resolution of the contact matrix from which the SV is originally predicted, the
+                        finest resolution where the SV can be mapped, the number of bad bins near the SV
+                        breakpoints.''')
     parser.add_argument('-p', '--prob-cutoff', default=0.5, type=float,
                         help='''Only SVs with probability greater than this value will be plotted.''')
     parser.add_argument('--cnv-file', help='''Copy number profile in bigwig format. Optional.''')
@@ -68,7 +72,7 @@ def run():
         
         if not args.cnv_file is None:
             vis.plot_signal('Copy Number Profile', args.cnv_file, max_value=cnv_max_value)
-        vis.plot_SV(args.full_sv_file, size=args.marker_size, prob_cutoff=args.prob_cutoff)
+        vis.plot_SV(args.sv_file, size=args.marker_size, prob_cutoff=args.prob_cutoff)
         vis.outfig(args.output_figure_name, dpi=args.dpi)
 
 if __name__ == '__main__':
