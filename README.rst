@@ -1,28 +1,30 @@
-EagleC
-******
-Hi-C technique has been shown to be a promising method to detect structural variations (SVs)
-in human genomes. However, algorithms that can use Hi-C data for a full-range SV detection
-have been severely lacking. Current methods can only identify inter-chromosomal translocations
-and long-range intra-chromosomal SVs (>1Mb) at less-than-optimal resolution. Therefore, we
-develop EagleC, a framework that combines deep-learning and ensemble-learning strategies to
-predict a full-range of SVs at high-resolution. Importantly, we show that EagleC can uniquely
-capture a set of fusion genes that are missed by WGS or nanopore. Furthermore, EagleC also
-effectively captures SVs in other chromatin interaction platforms, such as HiChIP, ChIA-PET,
-and capture Hi-C. We apply EagleC in over 100 cancer cell lines and primary tumors, and
-identify a valuable set of high-quality SVs. Finally, we demonstrate that EagleC can be
-applied to single-cell Hi-C and used to study the SV heterogeneity in primary tumors.
+EagleC2
+*******
+Hi-C has emerged as a valuable tool for detecting structural variations (SVs), yet its
+sensitivity remains limited—particularly for SVs lacking canonical contact patterns.
+Here, we introduce EagleC2, a next-generation deep-learning framework that integrates
+an ensemble of convolutional neural networks (CNNs) with diverse architectures, trained
+on over 2.7 million image patches derived from 51 cancer Hi-C datasets with matched
+whole-genome sequencing (WGS) data. EagleC2 substantially outperforms both its predecessor
+(EagleC) and other state-of-the-art methods, achieving consistently higher precision and
+recall across diverse validation datasets. Crucially, it enables the discovery of complex,
+small-scale, and non-canonical SVs that are often missed by existing tools. In individual
+cancer genomes, EagleC2 identifies over a thousand previously unrecognized SVs, the majority
+of which are supported by orthogonal evidence. To support clinical and diagnostic applications,
+EagleC2 includes a rapid evaluation mode for accurately screening predefined SV lists—even at
+ultra-low coverage (e.g., 1x depth). When applied to single-cell Hi-C data from glioblastoma
+before and after erlotinib treatment, EagleC2 reveals widespread SV heterogeneity and dynamic
+structural changes, uncovering alterations missed by existing pipelines. These findings
+establish EagleC2 as a powerful and versatile framework for SV discovery, with broad applications
+in genome research, cancer biology, diagnostics, and therapeutic target identification.
 
 .. image:: ./images/framework.png
         :align: center
 
-Unique features of EagleC
-=========================
-- EagleC is able to accurately detect a full range of SVs including short-range SVs with
-  breakpoint distance less than 100kb or even 50kb
-- EagleC is designed to accept any 3C-based contact maps, including Hi-C, Micro-C, HiChIP,
-  ChIA-PET, capture Hi-C, and single-cell Hi-C
-- EagleC can be used to predict SVs in any species (it has been tested in human, mouse, and
-  zebrafish)
+Unique features of EagleC2
+==========================
+.. csv-table:: Comparing methods for detecting SVs
+    :file: ./images/table.csv
 
 
 Citation
