@@ -1,36 +1,30 @@
 EagleC2
 *******
-Hi-C has emerged as a valuable tool for detecting structural variations (SVs), yet its
-sensitivity remains limited—particularly for SVs lacking canonical contact patterns.
-Here, we introduce EagleC2, a next-generation deep-learning framework that integrates
-an ensemble of convolutional neural networks (CNNs) with diverse architectures, trained
-on over 2.7 million image patches derived from 51 cancer Hi-C datasets with matched
-whole-genome sequencing (WGS) data. EagleC2 substantially outperforms both its predecessor
-(EagleC) and other state-of-the-art methods, achieving consistently higher precision and
-recall across diverse validation datasets. Crucially, it enables the discovery of complex,
-small-scale, and non-canonical SVs that are often missed by existing tools. In individual
-cancer genomes, EagleC2 identifies over a thousand previously unrecognized SVs, the majority
-of which are supported by orthogonal evidence. To support clinical and diagnostic applications,
-EagleC2 includes a rapid evaluation mode for accurately screening predefined SV lists—even at
-ultra-low coverage (e.g., 1x depth). When applied to single-cell Hi-C data from glioblastoma
-before and after erlotinib treatment, EagleC2 reveals widespread SV heterogeneity and dynamic
-structural changes, uncovering alterations missed by existing pipelines. These findings
-establish EagleC2 as a powerful and versatile framework for SV discovery, with broad applications
-in genome research, cancer biology, diagnostics, and therapeutic target identification.
+Hi-C has emerged as a powerful tool for detecting structural variations (SVs), but its
+sensitivity remains limited—particularly for SVs lacking canonical contact patterns. Here,
+we introduce EagleC2, a next-generation deep-learning framework that integrates an ensemble
+of convolutional neural networks (CNNs) with diverse architectures, trained on over 2.7
+million image patches from 51 cancer Hi-C datasets with matched whole-genome sequencing
+(WGS) data. EagleC2 substantially outperforms its predecessor (EagleC) and other state-of-the-art
+methods, achieving consistently higher precision and recall across diverse validation datasets.
+Notably, it enables the discovery of non-canonical SVs—including complex rearrangements and
+fusions involving extremely small fragments—that are frequently missed by existing tools. In
+individual cancer genomes, EagleC2 detects over a thousand previously unrecognized SVs, the
+majority of which are supported by orthogonal evidence. To support clinical and diagnostic
+applications, EagleC2 also offers a rapid evaluation mode for accurately screening predefined
+SV lists, even at ultra-low coverage (e.g., 1× depth). When applied to single-cell Hi-C data
+from glioblastoma before and after erlotinib treatment, EagleC2 reveals extensive SV heterogeneity
+and dynamic structural changes, including events overlooked by conventional pipelines. These
+findings establish EagleC2 as a powerful and versatile framework for SV discovery, with broad
+applications in genome research, cancer biology, diagnostics, and therapeutic development.
 
 .. image:: ./images/framework.png
         :align: center
 
 Unique features of EagleC2
 ==========================
-.. csv-table:: Comparing methods for detecting SVs
-    :file: ./images/table.csv
-
-
-Citation
-========
-Wang, X., Luan, Y., Yue, F. EagleC: A deep-learning framework for detecting a full range of
-structural variations from bulk and single-cell contact maps. Sci Adv. 2022.
+.. image:: ./images/table1.png
+        :align: center
 
 Navigation
 ==========
@@ -38,15 +32,17 @@ Navigation
 - `Download pre-trained models`_
 - `Overview of the commands`_
 - `Quick Start`_
-- `Annotate gene fusions`_
 - `Visualize predicted SVs on contact maps`_
-- `Locate high-resolution coordinates given a list of low-resolution SVs`_
-- `Predict SVs at higher resolutions`_
-- `Predict SVs in other species`_
+- `Evaluation of predefined SVs`_
 
 Installation
 ============
-First, install following python packages through `conda <https://conda.io/miniconda.html>`_::
+EagleC2 and all the dependencies can be installed through either `mamba <https://github.com/conda-forge/miniforge>`_
+or `pip <https://pypi.org/project/pip/>`_. After you have installed *mamba*
+successfully, you can create an environment for EagleC2 by executing the commands
+below if you
+
+If 
 
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
