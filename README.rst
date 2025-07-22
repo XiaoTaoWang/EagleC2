@@ -79,49 +79,52 @@ on macOS, please install *matplotlib*, *pyBigWig*, and *pyensembl* as described 
 
 Download pre-trained models
 ===========================
-We have trained a series of EagleC models covering various sequencing depths
-for both bulk Hi-C maps and single-cell Hi-C maps. Before running EagleC,
-we recommend downloading these pre-trained models by simply executing the
-command below. In prediction, EagleC will automatically select the most
-appropriate models according to the number of contacts in your contact map::
+Before proceeding, please download the pre-trained `models <https://www.jianguoyun.com/p/DQhrW0cQh9qdDBilpYEGIAA>`_ for EagleC2.
 
-    $ download-pretrained-models
+Unlike EagleC, which relied on separate models trained for specific resolutions
+(e.g., 5 kb, 10 kb, 50 kb, and 500 kb) and sequencing depths, EagleC2 was trained
+on a unified dataset that integrates samples across a wide range of resolutions
+and depths. This allows for seamless application to data at arbitrary resolutions
+and sequencing depths, without the need for model re-training.
 
 Overview of the commands
 ========================
-EagleC is distributed with 6 command-line tools. Type ``command [-h]`` in a terminal
-window to learn the basic usage of each command.
+EagleC2 is distributed with six command-line tools. You can ``command [-h]`` in a
+terminal window to view the basic usage of each command.
 
 - predictSV
 
-  *predictSV* is the main command we used to predict SVs from bulk Hi-C/HiChIP/ChIA-PET
-  contact maps in this work. It is based on *predictSV-single-resolution* and automatically
-  combines predictions from 5kb, 10kb, and 50kb resolutions. For 10kb and 50kb predictions,
-  it further searches for the most probable breakpoint coordinates within a local region on
-  5kb contact maps so that all the reported SVs are at the 5kb resolution. 
+  *predictSV* is the core command for predicting SVs from chromatin contact maps.
 
-  The inputs to this command are three genome-wide contact maps at 5kb, 10kb, and 50kb
-  resolutions in .cool format (cool URIs, refer to `cooler <https://github.com/open2c/cooler>`_
-  if you are not familiar with this format). If you only have `.hic files <https://github.com/aidenlab/juicer>`_,
-  consider converting your files to the ".cool" format using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_
-  or `pairLiftOver <https://github.com/XiaoTaoWang/pairLiftOver#usage>`_. The predicted SVs can
-  be selected to be reported in two formats: 1) "--output-format full" will report 8 columns
-  for each SV, including breakpoint coordinates (chrom1, pos1, chrom2, pos2) and probability
-  values of each fusion type (++, +-, -+, and --) (refer to Figures S1-S2 for the definition
-  of each fusion type); 2) "--output-format NeoLoopFinder" will output a file (6 columns) that
-  can be directly used as the `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_ input.
+  Required inputs:
+  
+  1. Path to a .mcool file (a format to storing contact matrices at multiple resolutions,
+  refer to `cooler <https://github.com/open2c/cooler>`_ if you are not familiar with this
+  format). If you only have `.hic files <https://github.com/aidenlab/juicer>`_, consider
+  converting your files to the ".mcool" format using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_
+  or `HiClift <https://github.com/XiaoTaoWang/HiCLift>`_.
+  2. Path to the folder containing the pretrained models.
+  
+  And the predicted SVs will be outputed to a TXT file with 13 columns: breakpoint coordinates (
+  chrom1, pos1, chrom2, pos2), probability values for each fusion type (++, +-, -+, --, ++/--,
+  and +-/-+), the resolution of the contact matrix from which the SV is originally predicted, the
+  finest resolution where the SV can be mapped, and the number of bad bins near the SV breakpoints.
 
-- predictSV-single-resolution
+- reformatSV
 
-  This command predicts SVs at single resolution. By default, it searches for SVs throughout the
-  whole genome; however, it can also perform a local search on high-resolution matrices if SVs
-  at lower resolutions are provided through the parameter "--low-resolution-breaks".
+  This command takes the output from the predictSV command and reformats it into a format suitable
+  for `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_.
 
-- merge-redundant-SVs
+- plot-SVbreaks
 
-  This command merges multiple SV calls from the same sample. The inputs are one or multiple SV files
-  from *predictSV* or *predictSV-single-resolution* in "full" format (8 columns). Again, the output
-  format has two options ("full" and "NeoLoopFinder").
+  This command plots a local contact map centered on the provided SV breakpoint coordinates. For
+  intra-chromosomal SVs, contact counts will be distance-normalized. All contact matrices will
+  be min-max scaled to the range [0, 1].
+
+  This command is useful when you want to visually check whether there are expected contact patterns
+  around the input SV breakpoints. The breakpoints should be in the format: chrom1,pos1,chrom2,pos2,
+  which can be from any software that detects SVs, including those developed for short-/long-read
+  whole genome sequencing.
 
 - annotate-gene-fusion
 
@@ -131,11 +134,13 @@ window to learn the basic usage of each command.
 
 - plot-interSVs
 
-  This command can be used to plot a chromosome-wide contact map with predicted SVs marked on it.
+  This command can be used to plot a contact map for the specified chromosomes, with predicted SVs
+  marked.
 
 - plot-intraSVs
 
-  This command can be used to plot a local intra-chromosomal contact map with predicted SVs marked on it.
+  This command can be used to plot a contact map for the specified genomic region, with predicted
+  SVs marked.
 
 
 Quick Start
