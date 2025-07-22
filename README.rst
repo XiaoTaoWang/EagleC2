@@ -26,8 +26,9 @@ Navigation
 - `Installation`_
 - `Download pre-trained models`_
 - `Overview of the commands`_
-- `Quick Start`_
-- `Visualize predicted SVs on contact maps`_
+- `Quick start`_
+- `Visualize local contact patterns around SV breakpoints`_
+- ``_
 - `Evaluation of predefined SVs`_
 
 Installation
@@ -84,14 +85,14 @@ and sequencing depths, without the need for model re-training.
 
 Overview of the commands
 ========================
-EagleC2 is distributed with six command-line tools. You can ``command [-h]`` in a
+EagleC2 is distributed with eight command-line tools. You can ``command [-h]`` in a
 terminal window to view the basic usage of each command.
 
 - predictSV
 
   *predictSV* is the core command for predicting SVs from chromatin contact maps.
 
-  **Required inputs:**
+  Required inputs:
 
   1. Path to a .mcool file – This is a multi-resolution format for storing contact
   matrices. See `cooler <https://github.com/open2c/cooler>`_ for details. If you only have
@@ -100,7 +101,7 @@ terminal window to view the basic usage of each command.
 
   2. Path to the folder containing the pre-trained models.
   
-  **Output:**
+  Output:
 
   The predicted SVs will be written to a .txt file with 13 columns:
   - Breakpoint coordinates (chrom1, pos1, chrom2, pos2)
@@ -137,10 +138,16 @@ terminal window to view the basic usage of each command.
 
   Plots a contact map for a specified genomic region, with predicted SVs marked.
 
+As the commands *annotate-gene-fusion*, *plot-interSVs*, and *plot-intraSVs* are directly
+inherited from the original EagleC, this documentation does not cover them in detail. For
+more information, please refer to the orignal `EagleC documentation <https://github.com/XiaoTaoWang/EagleC>`_
 
 Quick Start
 ===========
-First, let's download a processed Hi-C dataset (~163M contact pairs) in SK-N-AS
+The following steps will guide you through the process of using EagleC2. And all
+commands below are expected to be executed in a terminal window.
+
+First, place the downloaded pre-trained models "" in your working let's download a processed Hi-C dataset (~163M contact pairs) in SK-N-AS
 (a neuroblastoma cell line)::
 
     $ wget -O SKNAS-MboI-allReps-filtered.mcool -L https://www.dropbox.com/s/f80bgn11d7wfgq8/SKNAS-MboI-allReps-filtered.mcool?dl=0
