@@ -104,6 +104,7 @@ terminal window to view the basic usage of each command.
   Output:
 
   The predicted SVs will be written to a .txt file with 13 columns:
+  
   - Breakpoint coordinates (chrom1, pos1, chrom2, pos2)
   - Probability values for each SV type (++, +-, -+, --, ++/--, and +-/-+)
   - The resolution of the contact matrix from which the SV was originally predicted
