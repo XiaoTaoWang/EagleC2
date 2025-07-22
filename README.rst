@@ -37,31 +37,45 @@ Navigation
 
 Installation
 ============
-EagleC2 and all the dependencies can be installed through either `mamba <https://github.com/conda-forge/miniforge>`_
-or `pip <https://pypi.org/project/pip/>`_. After you have installed *mamba*
-successfully, you can create an environment for EagleC2 by executing the commands
-below if you
+EagleC2 and all required dependencies can be installed using `mamba <https://github.com/conda-forge/miniforge>`_
+and `pip <https://pypi.org/project/pip/>`_.
 
-If 
+After you have installed *mamba* successfully, you can create a conda environment
+for EagleC2 by executing the following commands (for Linux users)::
 
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ conda create -n EagleC python=3.8.12 cooler=0.8.6 joblib=1.0.1 scikit-learn=0.24.1 statsmodels=0.12.2 tensorflow=2.3.0 cython=0.29.24 matplotlib pyBigWig pyensembl
-
-.. note:: *matplotlib* and *pyBigWig* are only required if you want to use the visualization module
-   to view the predicted SVs on contact maps, and *pyensembl* is only required if you want to annotate
-   potential gene fusions given a list of SV breakpoints.
-
-If you are installing EagleC in Linux, just execute the command below to install
-EagleC from `PyPI <https://pypi.org/project/eaglec/>`_::
-
+    $ mamba create -n EagleC2 cooler hdbscan scikit-learn numba statsmodels "tensorflow>=2.16" "joblib=1.3"
+    $ mamba activate EagleC2
     $ pip install eaglec
 
-If you are installing EagleC in MacOS, please download and install an appropriate package
-from `here <https://github.com/XiaoTaoWang/EagleC/releases>`_::
+This will intall the core dependencies required to run EagleC2.
 
-    $ pip install eaglec-0.1.5-cp38-cp38-macosx_10_9_x86_64.whl
+If you also wish to use the visualization module, please install the following
+additional packages::
+
+    $ mamba install matplotlib pyBigWig
+
+If you plan to use the gene fusion annotation module, please install::
+
+    $ mamba install pyensembl
+
+For macOS users (tested on Apple M-series chips only), you can install EagleC2
+and its dependencies with::
+
+    $ conda config --add channels defaults
+    $ conda config --add channels bioconda
+    $ conda config --add channels conda-forge
+    $ mamba create -n EagleC2gpu python=3.11 hdbscan joblib=1.3 scikit-learn numba statsmodels
+    $ mamba activate EagleC2gpu
+    $ pip install cooler
+    $ pip install "tensorflow>=2.16"
+    $ pip install tensorflow-metal
+    $ pip install eaglec
+
+Similarly, if you would like to use the visualization or gene fusion annotation modules
+on macOS, please install *matplotlib*, *pyBigWig*, and *pyensembl* as described above.
 
 Download pre-trained models
 ===========================
