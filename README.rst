@@ -95,9 +95,9 @@ terminal window to view the basic usage of each command.
   Required inputs:
 
   1. Path to a .mcool file – This is a multi-resolution format for storing contact
-  matrices. See `cooler <https://github.com/open2c/cooler>`_ for details. If you only have
-  .hic files (see `Juicer <https://github.com/aidenlab/juicer>`_), you can convert them
-  to .mcool using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_ or `HiClift <https://github.com/XiaoTaoWang/HiCLift>`_.
+     matrices. See `cooler <https://github.com/open2c/cooler>`_ for details. If you only have
+     .hic files (see `Juicer <https://github.com/aidenlab/juicer>`_), you can convert them
+     to .mcool using `hic2cool <https://github.com/4dn-dcic/hic2cool>`_ or `HiClift <https://github.com/XiaoTaoWang/HiCLift>`_.
   2. Path to the folder containing the pre-trained models.
   
   Output:
