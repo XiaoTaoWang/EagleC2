@@ -45,11 +45,17 @@ def run():
     # Improve the performance if you don't want to run it
     if commands[0] not in ['-h', '-v', '--help', '--version']:
 
-        import joblib, cooler
+        import joblib, cooler, matplotlib
         import numpy as np
         import matplotlib.pyplot as plt
         from eaglec.utilities import find_matched_resolution, distance_normaize_core, image_normalize
         from matplotlib.colors import LinearSegmentedColormap
+
+        new_rc_params = {'text.usetex': False,
+        "svg.fonttype": 'none'
+        }
+
+        matplotlib.rcParams.update(new_rc_params)
 
         cmap = LinearSegmentedColormap.from_list('interaction',
                 ['#FFFFFF','#FFDFDF','#FF7575','#FF2626','#F70000'])
