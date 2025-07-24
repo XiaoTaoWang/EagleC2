@@ -284,15 +284,15 @@ intra-chromosomal SV detected earlier (see panel b)::
                     --balance-type ICE --breakpoint-coords chr4,52200000,chr4,64400000 \
                     --window-width 15 -O chr4,52200000,chr4,64400000.100kb.png --max-value 1 --dpi 800
 
-.. image:: ./images/SVbreaks.png
-        :align: center
-        :scale: 30%
-
 As shown in the figures, the balanced translocation exhibits a clear butterfly-shaped
 contact pattern, consistent with the highest predicted probability for the "+-/-+" SV
 type (1). In contrast, the intra-chromosomal SV displays a strong interaction block
 in the upper-left quadrant, consistent with the highest predicted probability for the "++"
 SV type (0.6095) at the breakpoints.
+
+.. image:: ./images/SVbreaks.png
+        :align: center
+        :scale: 30%
 
 Post-processing and filtering of SV predictions
 ===============================================
