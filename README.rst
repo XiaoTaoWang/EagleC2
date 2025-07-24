@@ -56,7 +56,7 @@ for EagleC2 by executing the following commands (for Linux users)::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2 cooler hdbscan scikit-learn numba statsmodels joblib=1.3 numpy=1.26 "tensorflow>=2.16"
+    $ mamba create -n EagleC2 cooler hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4 "tensorflow>=2.16"
     $ mamba activate EagleC2
     $ pip install eaglec
 
@@ -77,7 +77,7 @@ and its dependencies with::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2gpu python=3.11 hdbscan scikit-learn numba statsmodels joblib=1.3 numpy=1.26
+    $ mamba create -n EagleC2gpu python=3.11 hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4
     $ mamba activate EagleC2gpu
     $ pip install cooler
     $ pip install "tensorflow>=2.16"
