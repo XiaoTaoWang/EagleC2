@@ -43,6 +43,7 @@ Navigation
 - `Visualize local contact patterns around SV breakpoints`_
 - `Post-processing and filtering of SV predictions`_
 - `Evaluation of predefined SVs`_
+- `Clustering of single cells based on EagleC2 predictions`_
 
 Installation
 ============
@@ -194,28 +195,30 @@ For view a full description of each parameter, run::
 
     $ predictSV -h
 
-Below is a brief description of what will happen when you run the command above.
-
+What happens when you run the above command
+-------------------------------------------
 This command performs genome-wide SV prediction on ICE-normalized contact matrices
 at 50 kb and 100 kb resolutions (as specified by ``--resolutions``, excluding those
 listed in ``--high-res``). To accelerate computation, pixels with significantly
 elevated contact counts are identified and extended by 1 bin on both ends (controlled
-by ``--intra-extend-size`` and ``--inter-extend-size``, the numbers specified for these
+by ``--intra-extend-size`` and ``--inter-extend-size``; the values specified for these
 parameters correspond to each resolution listed in ``--resolutions``) to cover potential
 SV breakpoints.
 
 SV predicted at coarser resolutions are progressively refined at higher resolutions.
 For example, an SV initially predicted at 100 kb (with a probability cutoff of 0.5,
 set by ``--prob-cutoff-1``) will be refined at 50 kb. If the probability at 50 kb exceeds
-the second cutoff of 0.5 (set by ``--prob-cutoff-2``), the SV will be further refined at 25kb.
+the second cutoff (set by ``--prob-cutoff-2``), the SV will be further refined at 25 kb.
 Otherwise, the 50 kb coordinates are reported as final.
 
 SV predictions across all resolutions are merged in a non-redundant manner. For resolutions
-specified by ``--high-res``, the program performs refinement only, not genome-wide scanning.
+specified in ``--high-res``, the program performs refinement only—not genome-wide scanning.
 
-Computation is parallelized using 8 CPU cores (set via -p 8). If a GPU is available and the
-``--cpu`` flag is not set, model inference will be executed on the GPU.
+Computation is parallelized using 8 CPU cores (set via ``-p 8``). If a GPU is available and
+the ``--cpu`` flag is not set, model inference will run on the GPU.
 
+Output interpretation
+----------------------
 After ~5 minutes (depending on your machine), you will find the predicted SVs in a .txt file
 named "FY1199_EagleC2.SV_calls.txt" in your working directory::
 
@@ -225,22 +228,42 @@ named "FY1199_EagleC2.SV_calls.txt" in your working directory::
     chr4	52200000	chr4	64400000	0.6095	1.42e-06	1.96e-06	7.996e-09	3.169e-08	9.618e-09	100000	100000	0,0
     chr11	116800000	chr22	20300000	2.495e-11	1.013e-06	5.552e-07	7.897e-11	2.943e-12	1	50000	25000	0,0
 
-Note the known balanced translocation is successfully detected. The final breakpoint
+The known balanced translocation is successfully detected. The final breakpoint
 coordinates (chr11:116800000;chr22:20300000) are reported at 25 kb resolution (see
-column "fine-mapped resolution"), and the SV was initially predicted at 50 kb (see column
-"original resolution"). The last column, "gap info" shows that there are no bad bins
-(i.e., bins with extremely low contact counts) near either side of the breakpoints (0,0).
+the "fine-mapped resolution" column), while the SV was initially predicted at 50 kb
+(see the "original resolution" column). The last column, "gap info", indicates that
+there are no problematic bins in reference genome (hg38, as specified by the parameter
+``-g``) near either breakpoint (0,0).
 
 .. note::
     Valid Options for the ``--balance-type`` parameter are "ICE", "CNV" and "Raw".
 
     - Use "Raw" to process unnormalized contact matrices.
     - Use "ICE" only if your matrices have been balanced with `cooler balance <https://cooler.readthedocs.io/en/latest/cli.html#cooler-balance>`_.
-    - Use "CNV" only if your matrices have been CNV corrected using ``correct-cnv`` from the `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_ toolkit.
+    - Use "CNV" only if your matrices have been CNV-corrected using ``correct-cnv`` from the `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_ toolkit.
     
     Different normalization strategies may yield slightly different results. For best
-    sensitivity, we recommend running predictSV on all three matrix types (Raw, CNV, and ICE)
-    and merging the results.
+    sensitivity, we recommend running *predictSV* on all three types of contact matrices
+    (Raw, CNV, and ICE) and merging the results.
+
+Prediction command used in the paper
+------------------------------------
+For the BT-474 Hi-C dataset used in Figure 2, we used the following command
+(for HCC1954 and MCF7, the same parameters were used with different `.mcool`
+inputs)::
+
+    $ predictSV --mcool BT474.used_for_SVpredict.mcool --resolutions 5000,10000,25000,50000 \
+                --high-res 2000 -O BT474_EagleC2 -g hg38 --balance-type CNV \
+                -p 8 --intra-extend-size 2,2,2,1 --inter-extend-size 1,1,1,1
+
+For the HCC1954 Arima Hi-C dataset used in Figure 3, we used the following command::
+
+    $ 
+
+For the single-cell Hi-C datasets used in Figure 4, we used the following command
+to predict SVs from pseudo-bulk contact matrices::
+
+    $ 
 
 Visualize local contact patterns around SV breakpoints
 ======================================================
@@ -252,3 +275,6 @@ Post-processing and filtering of SV predictions
 
 Evaluation of predefined SVs
 ============================
+
+Clustering of single cells based on EagleC2 predictions
+=======================================================
