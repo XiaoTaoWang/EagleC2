@@ -233,15 +233,14 @@ column "fine-mapped resolution"), and the SV was initially predicted at 50 kb (s
 
 .. note::
     Valid Options for the ``--balance-type`` parameter are "ICE", "CNV" and "Raw".
+
+    - Use "Raw" to process unnormalized contact matrices.
+    - Use "ICE" only if your matrices have been balanced with `cooler balance <https://cooler.readthedocs.io/en/latest/cli.html#cooler-balance>`_.
+    - Use "CNV" only if your matrices have been CNV corrected using ``correct-cnv`` from the `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_ toolkit.
     
-    By specifying "--balance-type Raw", the raw contact matrices will be used. Otherwise,
-    if you choose CNV, CNV-normalized contact matrices will be used, and in this case,
-    please make sure you have run "correct-cnv" of the `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_
-    toolkit before you run *predictSV*; if you choose ICE, make sure you have run
-    "cooler balance" on your Hi-C matrices before you run this command. Different normalization
-    methods usually lead to overall similar but not identical SV predictions. If you want to
-    achieve the best sensitivity, we recommend you to run *predictSV* on all three types of
-    contact matrices (Raw, CNV, and ICE) and then merge the results together.
+    Different normalization strategies may yield slightly different results. For best
+    sensitivity, we recommend running predictSV on all three matrix types (Raw, CNV, and ICE)
+    and merging the results.
 
 Visualize local contact patterns around SV breakpoints
 ======================================================
