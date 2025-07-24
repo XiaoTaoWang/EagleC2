@@ -104,7 +104,7 @@ def run():
                 ax.text(-8*offset, (ymin+ymax)/2, 'chr'+c1.lstrip('chr'), rotation=90, va='center', ha='right', fontsize=fontsize)
 
                 # mark SVs positions
-                ax.scatter(w, w, c='k', ec='k', fc='none', marker='o', s=40, alpha=1)
+                ax.scatter(w, w, c='none', ec='k', fc='none', marker='o', s=40, alpha=1)
                 ax.tick_params(axis='both', bottom=False, top=False, left=False, right=False,
                             labelbottom=False, labeltop=False, labelleft=False, labelright=False)
                 for spine in ['right', 'top', 'bottom', 'left']:

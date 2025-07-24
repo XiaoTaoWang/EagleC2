@@ -56,7 +56,7 @@ for EagleC2 by executing the following commands (for Linux users)::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2 cooler hdbscan scikit-learn numba statsmodels "tensorflow>=2.16" "joblib=1.3"
+    $ mamba create -n EagleC2 cooler hdbscan scikit-learn numba statsmodels joblib=1.3 numpy=1.26 "tensorflow>=2.16"
     $ mamba activate EagleC2
     $ pip install eaglec
 
@@ -77,7 +77,7 @@ and its dependencies with::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2gpu python=3.11 hdbscan joblib=1.3 scikit-learn numba statsmodels
+    $ mamba create -n EagleC2gpu python=3.11 hdbscan scikit-learn numba statsmodels joblib=1.3 numpy=1.26
     $ mamba activate EagleC2gpu
     $ pip install cooler
     $ pip install "tensorflow>=2.16"
@@ -267,7 +267,31 @@ to predict SVs from pseudo-bulk contact matrices::
 
 Visualize local contact patterns around SV breakpoints
 ======================================================
+To assess the quality of predicted SVs, you can visualize the local contact
+patterns around the breakpoints using the *plot-SVbreaks* command.
 
+For example, the following command plots the contact map centered on the breakpoints
+of the balanced translocation detected in the previous step (see panel a)::
+
+    $ plot-SVbreaks --cool-uri FY1199.used_for_SVpredict.mcool::resolutions/25000 \
+                    --balance-type ICE --breakpoint-coords chr11,116800000,chr22,20300000 \
+                    --window-width 15 -O chr11,116800000,chr22,20300000.25kb.png --dpi 800
+
+Similarly, this command visualizes the contact patterns around the breakpoints of another  
+intra-chromosomal SV detected earlier (see panel b)::
+
+    $ plot-SVbreaks --cool-uri FY1199.used_for_SVpredict.mcool::resolutions/100000 \
+                    --balance-type ICE --breakpoint-coords chr4,52200000,chr4,64400000 \
+                    --window-width 15 -O chr4,52200000,chr4,64400000.100kb.png --max-value 1 --dpi 800
+
+.. image:: ./images/SVbreaks.png
+        :align: center
+
+As shown in the figures, the balanced translocation exhibits a clear butterfly-shaped
+contact pattern, consistent with the highest predicted probability for the "+-/-+" SV
+type (1). In contrast, the intra-chromosomal SV displays a strong interaction block
+in the upper-left quadrant, consistent with the highest predicted probability for the "++"
+SV type (0.6095) at the breakpoints.
 
 Post-processing and filtering of SV predictions
 ===============================================
