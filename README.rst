@@ -165,51 +165,59 @@ more information, please refer to the orignal `EagleC documentation <https://git
 
 Quick Start
 ===========
-The following steps will guide you through the process of using EagleC2. And all
+The following steps will guide you through the process of using EagleC2. All
 commands below are expected to be executed in a terminal window.
 
-First, place the downloaded pre-trained models in your working directory and unzip it::
-    
+1. Unzip the pre-trained models
+-------------------------------
+Place the downloaded pre-trained models in your working directory and unzip the archive::
+
     $ unzip EagleC2-models.zip
 
-Next, let's download a test dataset `FY1199.used_for_SVpredict.mcool <https://www.jianguoyun.com/p/DYoL0UgQh9qdDBjdpoEGIAA>`_
-(~18 million contact pairs) in FY1199, a human lymphoblastoid cell line which has a
-balanced known inter-chromosomal translocation between chromosomes 11 and 22
-(46,XY,t(11;22)(q23.3;q11.2)). Place it under the same directory as the pre-trained
-models.
+2. Download the test dataset
+-----------------------------
+Download the test dataset `FY1199.used_for_SVpredict.mcool <https://www.jianguoyun.com/p/DYoL0UgQh9qdDBjdpoEGIAA>`_,
+which contains ~18 million contact pairs. This dataset is derived from FY1199,
+a human lymphoblastoid cell line with a known balanced inter-chromosomal translocation
+between chromosomes 11 and 22 (46,XY,t(11;22)(q23.3;q11.2)). Place the file in the
+same directory as the pre-trained models.
 
-To predict SVs from this Hi-C data, just execute the following command::
+3. Run the SV prediction command
+--------------------------------
+Execute the following command to perform SV prediction on this Hi-C dataset::
 
     $ predictSV --mcool FY1199.used_for_SVpredict.mcool --resolutions 25000,50000,100000 \
                 --high-res 25000 --prob-cutoff-1 0.5 --prob-cutoff-2 0.5 -O FY1199_EagleC2 \
                 -g hg38 --balance-type ICE -p 8 --intra-extend-size 1,1,1 --inter-extend-size 1,1,1
 
-Again, typing ``predictSV -h`` in a terminal window will show you the description
-of each parameter. Basically, the above command will perform a genome-wide SV
-prediction on ICE-normalized (determined by the parameter ``--balance-type``) contact
-matrices at 50kb and 100kb resolutions (the resolutions specified by ``--resolutions``
-excluding the resolutions specified by ``--high-res``). To speed up the calculation,
-pixels with significantly higher contact counts will be identified and extended by 1
-bin at both ends (specified by ``--intra-extend-size`` and ``--inter-extend-size``,
-the bin numbers specified by these two parameters correspond to each of the resolution
-specified by ``--resolutions``) to cover potential SV breakpoints. SV predictions
-made at coarser resolutions will be refined by progressively searching for more precise
-breakpoint coordinates at higher resolutions. For example, here an SV initially predicted
-at 100kb (with a probability cutoff of 0.5, determined by the parameter ``--prob-cutoff-1``)
-will be refined by searching for corresponding breakpoints at 50kb. If the probability
-at 50kb exceeds the cutoff of 0.5 (determined by the parameter ``--prob-cutoff-2``),
-the SV will be further refined at 25kb. Otherwise, it stops and reports the coordinates
-at 50kb as the final prediction. Finally, SV predictions across all resolutions are merged
-in a non-redundant manner. Note that for resolutions specified by ``--high-res``, the
-program will not perform a genome-wide search, but will only detect short-range SVs
-and refine SV calls identified at coarser resolutions.
+For view a full description of each parameter, run::
 
-The I/O, preprocessing, and postprocessing steps will be performed in parallel with 8
-CPU cores (specified by ``-p 8``). If GPU is available and if the flag ``--cpu`` is
-not set, the model inference will be performed on the GPU.
+    $ predictSV -h
 
-Wait for ~5 minutes (this may vary depending on your machine), you will find the predicted
-SVs in a .txt file named as "FY1199_EagleC2.SV_calls.txt" in your current working directory::
+Below is a brief description of what will happen when you run the command above.
+
+This command performs genome-wide SV prediction on ICE-normalized contact matrices
+at 50 kb and 100 kb resolutions (as specified by ``--resolutions``, excluding those
+listed in ``--high-res``). To accelerate computation, pixels with significantly
+elevated contact counts are identified and extended by 1 bin on both ends (controlled
+by ``--intra-extend-size`` and ``--inter-extend-size``, the numbers specified for these
+parameters correspond to each resolution listed in ``--resolutions``) to cover potential
+SV breakpoints.
+
+SV predicted at coarser resolutions are progressively refined at higher resolutions.
+For example, an SV initially predicted at 100 kb (with a probability cutoff of 0.5,
+set by ``--prob-cutoff-1``) will be refined at 50 kb. If the probability at 50 kb exceeds
+the second cutoff of 0.5 (set by ``--prob-cutoff-2``), the SV will be further refined at 25kb.
+Otherwise, the 50 kb coordinates are reported as final.
+
+SV predictions across all resolutions are merged in a non-redundant manner. For resolutions
+specified by ``--high-res``, the program performs refinement only, not genome-wide scanning.
+
+Computation is parallelized using 8 CPU cores (set via -p 8). If a GPU is available and the
+``--cpu`` flag is not set, model inference will be executed on the GPU.
+
+After ~5 minutes (depending on your machine), you will find the predicted SVs in a .txt file
+named "FY1199_EagleC2.SV_calls.txt" in your working directory::
 
     $ cat FY1199_EagleC2.SV_calls.txt
 
@@ -217,14 +225,15 @@ SVs in a .txt file named as "FY1199_EagleC2.SV_calls.txt" in your current workin
     chr4	52200000	chr4	64400000	0.6095	1.42e-06	1.96e-06	7.996e-09	3.169e-08	9.618e-09	100000	100000	0,0
     chr11	116800000	chr22	20300000	2.495e-11	1.013e-06	5.552e-07	7.897e-11	2.943e-12	1	50000	25000	0,0
 
-Note the known balanced translocation has been successfully detected. The final breakpoint
-coordinates (chr11:116800000;chr22:20300000) for this SV are reported at 25kb resolution
-(based on the column "fine-mapped resolution"), and this SV is originally predicted
-at 50kb resolution (based on the column "original resolution"). The last column "gap info"
-indicates that there are no bad bins (bins with extremely low contact counts) near either
-of the breakpoints (0,0).
+Note the known balanced translocation is successfully detected. The final breakpoint
+coordinates (chr11:116800000;chr22:20300000) are reported at 25 kb resolution (see
+column "fine-mapped resolution"), and the SV was initially predicted at 50 kb (see column
+"original resolution"). The last column, "gap info" shows that there are no bad bins
+(i.e., bins with extremely low contact counts) near either side of the breakpoints (0,0).
 
-.. note:: Options for the ``--balance-type`` parameter includes "ICE", "CNV" and "Raw".
+.. note::
+    Valid Options for the ``--balance-type`` parameter are "ICE", "CNV" and "Raw".
+    
     By specifying "--balance-type Raw", the raw contact matrices will be used. Otherwise,
     if you choose CNV, CNV-normalized contact matrices will be used, and in this case,
     please make sure you have run "correct-cnv" of the `NeoLoopFinder <https://github.com/XiaoTaoWang/NeoLoopFinder>`_
