@@ -286,7 +286,7 @@ intra-chromosomal SV detected earlier (see panel b)::
 
 .. image:: ./images/SVbreaks.png
         :align: center
-        :scale: 70%
+        :scale: 50%
 
 As shown in the figures, the balanced translocation exhibits a clear butterfly-shaped
 contact pattern, consistent with the highest predicted probability for the "+-/-+" SV
