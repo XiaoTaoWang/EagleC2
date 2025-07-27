@@ -77,11 +77,12 @@ and its dependencies with::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2gpu python=3.12 hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4
+    $ mamba clean --all
+    $ mamba create -n EagleC2gpu python=3.11 hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4
     $ mamba activate EagleC2gpu
-    $ pip install cooler
-    $ pip install tensorflow==2.18.1
-    $ pip install tensorflow-metal==1.2.0
+    $ pip install --no-cache-dir cooler
+    $ pip install --no-cache-dir tensorflow==2.16.1 keras==3.3.3
+    $ pip install --no-cache-dir tensorflow-metal==1.1.0
     $ pip install eaglec
 
 Similarly, if you would like to use the visualization or gene fusion annotation modules
