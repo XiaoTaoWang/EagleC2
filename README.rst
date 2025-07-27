@@ -77,11 +77,11 @@ and its dependencies with::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2gpu python=3.11 hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4
+    $ mamba create -n EagleC2gpu python=3.12 hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4
     $ mamba activate EagleC2gpu
     $ pip install cooler
-    $ pip install "tensorflow>=2.16"
-    $ pip install tensorflow-metal
+    $ pip install tensorflow==2.18.1
+    $ pip install tensorflow-metal==1.2.0
     $ pip install eaglec
 
 Similarly, if you would like to use the visualization or gene fusion annotation modules
@@ -252,9 +252,9 @@ For the BT-474 Hi-C dataset used in Figure 2, we used the following command
 (for HCC1954 and MCF7, the same parameters were used with different `.mcool`
 inputs)::
 
-    $ predictSV --mcool BT474.used_for_SVpredict.mcool --resolutions 5000,10000,25000,50000 \
+    $ predictSV --mcool BT474.used_for_SVpredict.mcool --resolutions 5000,10000,50000 \
                 --high-res 2000 -O BT474_EagleC2 -g hg38 --balance-type CNV \
-                -p 8 --intra-extend-size 2,2,2,1 --inter-extend-size 1,1,1,1
+                -p 8 --intra-extend-size 2,2,1 --inter-extend-size 1,1,1
 
 For the HCC1954 Arima Hi-C dataset used in Figure 3, we used the following command::
 
