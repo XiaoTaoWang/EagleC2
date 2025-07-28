@@ -247,6 +247,10 @@ there are no problematic bins in reference genome (hg38, as specified by the par
     sensitivity, we recommend running *predictSV* on all three types of contact matrices
     (Raw, CNV, and ICE) and merging the results.
 
+    All key parameters that may affect the sensitivity and specificity of SV prediction
+    are configurable via command-line options. For details, please refer to the help
+    message of the *predictSV* command by running ``predictSV -h``.
+
 Prediction command used in the paper
 ------------------------------------
 For the BT-474 Hi-C dataset used in Figure 2, we used the following command
