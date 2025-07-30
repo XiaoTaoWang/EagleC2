@@ -328,12 +328,12 @@ SV type (0.6095) at the breakpoints.
 
 Post-processing and filtering of SV predictions
 ===============================================
-To refine the Structural Variation (SV) predictions, you can filter them based on probability values and resolution. The script provides two mutually exclusive filtering strategies.
+To refine the SV predictions, you can filter them based on probability values and resolution. The script provides two mutually exclusive filtering strategies.
 
 Filtering Strategies
-Resolution-Specific Filtering: This mode allows you to set distinct probability cutoffs for one or more specific resolutions. You need provide both the --res-cutoffs and --res-list arguments, ensuring that the number of values in each list corresponds to one another.
+Resolution-specific filtering: This mode allows you to set distinct probability cutoffs for one or more specific resolutions. You need provide both the --res-cutoffs and --res-list arguments, ensuring that the number of values in each list corresponds to one another.
 
-High/Low Resolution Filtering: This mode uses a general threshold to filter SVs based on whether they were identified at high resolution (≤10000) or low resolution (>10000). To use this, enable the --high-low-cutoffs flag. You can customize the thresholds with --high-res-cutoff (default: 0.5) and --low-res-cutoff (default: 0.99).
+High/Low resolution filtering: This mode uses a general threshold to filter SVs based on whether they were identified at high resolution (≤10000) or low resolution (>10000). To use this, enable the --high-low-cutoffs flag. You can customize the thresholds with --high-res-cutoff (default: 0.5) and --low-res-cutoff (default: 0.99).
 
 For the filtering of the BT-474 results used in Figure 2, we used the following command (for HCC1954 and MCF7, the same parameters were used with different .txt inputs)::
 
@@ -342,7 +342,6 @@ For the filtering of the BT-474 results used in Figure 2, we used the following 
 For the filtering of HCC1954 Arima results used in Figure3-5, we used the following command::
 
     $ filterSV -i HCC1954_Arima_EagleCgpu_2.SV_calls.txt --high-low-cutoffs --high-res-cutoff 0.5 --low-res-cutoff 0.99
-
 
 Evaluation of predefined SVs
 ============================
