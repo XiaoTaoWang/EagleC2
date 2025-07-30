@@ -139,11 +139,26 @@ terminal window to view the basic usage of each command.
 
 - filterSV
 
-  Filters the predicted SVs based on ...
+  Filters the predicted SVs based on the probability values and resolutions with the output .txt files of the *predictedSV*.
 
 - evaluateSV
 
-  Evaluates a predefined list of SVs using EagleC2 models ...
+  Evaluates a predefined list of SVs using EagleC2 models. 
+
+  Required inputs:
+
+  1. Path to a .mcool file.
+  2. Path to the folder containing the pre-trained models.
+  3. Path to the predifined list of SVs with format 'chrom1 chrom2 breakpoint1 breakpoint2'
+
+  Output:
+
+  The evaluated SVs will be written to a .txt file with 13 columns:
+
+  - Breakpoint coordinates (chrom1, pos1, chrom2, pos2)
+  - Probability values for each SV type (++, +-, -+, --, ++/--, and +-/-+)
+  - The resolution of the contact matrix from which the SV was evaluated
+  - And if the SV is supported, the supporting coordinates of the Hi-C (pos1, pos2) will be presented.
 
 - reformatSV
 
