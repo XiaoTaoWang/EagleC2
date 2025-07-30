@@ -280,7 +280,7 @@ For the HCC1954 Arima Hi-C dataset used in Figure 3, we used the following comma
 
     $ 
 
-For the single-cell Hi-C datasets used in Figure 4, we used the following command
+For the single-cell Hi-C datasets used in Figure 6, we used the following command
 to predict SVs from pseudo-bulk contact matrices::
 
     $ 
