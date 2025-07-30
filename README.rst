@@ -328,7 +328,12 @@ SV type (0.6095) at the breakpoints.
 
 Post-processing and filtering of SV predictions
 ===============================================
-To refine the SV predictions, you can filter the SV predictions based on the probability values and resolutions.
+To refine the SV predictions, you can filter the SV predictions based on the probability values and resolutions. You can choose to filter the SV predictions elaborately or coarsely. Specifically, when you choose the coarse type, you can set the probability values cutoffs for high resolutions and low resolutions respectivly; when you choose the elaborate type you need to set the resolution you need to keep and the probability values cutoffs for each resolutions.
+For the filtering of the BT-474 results used in Figure 2, we used the following command (for HCC1954 and MCF7, the same parameters were used with different .txt inputs)::
+
+  $filterSV -i BT-474_EagleCgpu_2.SV_calls.txt --res-cutoffs 0.5,0.65 --res-list 5000,10000
+
+For the filtering of HCC1954 Arima results used in Figure3-5, we used the following command
 
 
 Evaluation of predefined SVs
