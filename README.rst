@@ -328,12 +328,20 @@ SV type (0.6095) at the breakpoints.
 
 Post-processing and filtering of SV predictions
 ===============================================
-To refine the SV predictions, you can filter the SV predictions based on the probability values and resolutions. You can choose to filter the SV predictions elaborately or coarsely. Specifically, when you choose the coarse type, you can set the probability values cutoffs for high resolutions and low resolutions respectivly; when you choose the elaborate type you need to set the resolution you need to keep and the probability values cutoffs for each resolutions.
+To refine the Structural Variation (SV) predictions, you can filter them based on probability values and resolution. The script provides two mutually exclusive filtering strategies.
+
+Filtering Strategies
+Resolution-Specific Filtering: This mode allows you to set distinct probability cutoffs for one or more specific resolutions. You need provide both the --res-cutoffs and --res-list arguments, ensuring that the number of values in each list corresponds to one another.
+
+High/Low Resolution Filtering: This mode uses a general threshold to filter SVs based on whether they were identified at high resolution (≤10000) or low resolution (>10000). To use this, enable the --high-low-cutoffs flag. You can customize the thresholds with --high-res-cutoff (default: 0.5) and --low-res-cutoff (default: 0.99).
+
 For the filtering of the BT-474 results used in Figure 2, we used the following command (for HCC1954 and MCF7, the same parameters were used with different .txt inputs)::
 
-  $filterSV -i BT-474_EagleCgpu_2.SV_calls.txt --res-cutoffs 0.5,0.65 --res-list 5000,10000
+    $ filterSV -i BT-474_EagleCgpu_2.SV_calls.txt --res-cutoffs 0.5,0.65 --res-list 5000,10000
 
-For the filtering of HCC1954 Arima results used in Figure3-5, we used the following command
+For the filtering of HCC1954 Arima results used in Figure3-5, we used the following command::
+
+    $ filterSV -i HCC1954_Arima_EagleCgpu_2.SV_calls.txt --high-low-cutoffs --high-res-cutoff 0.5 --low-res-cutoff 0.99
 
 
 Evaluation of predefined SVs
