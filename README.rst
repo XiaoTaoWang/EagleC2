@@ -328,6 +328,7 @@ SV type (0.6095) at the breakpoints.
 
 Post-processing and filtering of SV predictions
 ===============================================
+To refine the SV predictions, you can filter the SV predictions based on the probability values and resolutions.
 
 
 Evaluation of predefined SVs
