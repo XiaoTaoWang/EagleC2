@@ -156,7 +156,8 @@ terminal window to view the basic usage of each command.
   The evaluated SVs will be written to a .txt file with 13 columns:
 
   - Breakpoint coordinates (chrom1, pos1, chrom2, pos2)
-  - Probability values for each SV type (++, +-, -+, --, ++/--, and +-/-+)
+  - SV type (++, +-, -+, --, ++/--, or +-/-+)
+  - Probability values
   - The resolution of the contact matrix from which the SV was evaluated
   - And if the SV is supported, the supporting coordinates of the Hi-C (pos1, pos2) will be presented.
 
