@@ -361,11 +361,11 @@ Output interpretation
 
 After evaluation, you will find the evaluated SVs in a .txt file named "HCC1954.SV_evaluate.txt" in your working directory::
 
-$ cat HCC1954.SV_evaluate.txt
+    $ cat HCC1954.SV_evaluate.txt
 
-chrom1	pos1	chrom2	pos2	strand	probability	hic_pos1	hic_pos2	resolution
-chr20	12500000	chr9	8000000	--	5.516e-05	12505000	8010000	5000
-chr17	39050000	chr17	72400000	++/--	0.01976	39060000	72395000	5000
+    chrom1	pos1	chrom2	pos2	strand	probability	hic_pos1	hic_pos2	resolution
+    chr20	12500000	chr9	8000000	--	5.516e-05	12505000	8010000	5000
+    chr17	39050000	chr17	72400000	++/--	0.01976	39060000	72395000	5000
 
 Note: SVs with no Hi-C contact signals in the widown will not be reported in the .txt files.
 
