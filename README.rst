@@ -332,6 +332,7 @@ Post-processing and filtering of SV predictions
 To refine the SV predictions, you can filter them based on probability values and resolution. The script provides two mutually exclusive filtering strategies.
 
 Filtering Strategies
+
 Resolution-specific filtering: This mode allows you to set distinct probability cutoffs for one or more specific resolutions. You need provide both the --res-cutoffs and --res-list arguments, ensuring that the number of values in each list corresponds to one another.
 
 High/Low resolution filtering: This mode uses a general threshold to filter SVs based on whether they were identified at high resolution (≤10000) or low resolution (>10000). To use this, enable the --high-low-cutoffs flag. You can customize the thresholds with --high-res-cutoff (default: 0.5) and --low-res-cutoff (default: 0.99).
@@ -347,6 +348,26 @@ For the filtering of HCC1954 Arima results used in Figure3-5, we used the follow
 Evaluation of predefined SVs
 ============================
 
+EagleC2 provides an evaluation mode for rapid and accurate screening of predefined SV lists. Execute the following command to evaluate predefined SV lists with Hi-C dataset::
+
+$ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954 --model-path --resolutions 5000,10000,50000 --balance-type Raw
+
+For view a full description of each parameter, run::
+
+    $ evaluateSV -h
+
+Output interpretation
+----------------------
+
+After evaluation, you will find the evaluated SVs in a .txt file named "HCC1954.SV_evaluate.txt" in your working directory::
+
+$ cat HCC1954.SV_evaluate.txt
+
+chrom1	pos1	chrom2	pos2	strand	probability	hic_pos1	hic_pos2	resolution
+chr20	12500000	chr9	8000000	--	5.516e-05	12505000	8010000	5000
+chr17	39050000	chr17	72400000	++/--	0.01976	39060000	72395000	5000
+
+Note: SVs with no Hi-C contact signals in the widown will not be reported in the .txt files.
 
 Clustering of single cells based on EagleC2 predictions
 =======================================================
