@@ -368,6 +368,3 @@ After evaluation, you will find the evaluated SVs in a .txt file named "HCC1954.
     chr17	39050000	chr17	72400000	++/--	0.01976	39060000	72395000	5000
 
 Note: SVs with no Hi-C contact signals in the breakpoints' window will not be reported in the .txt files.
-
-Clustering of single cells based on EagleC2 predictions
-=======================================================
