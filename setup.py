@@ -25,7 +25,7 @@ setuptools.setup(
     author = eaglec.__author__,
     author_email = 'wangxiaotao@fudan.edu.cn',
     url = 'https://github.com/XiaoTaoWang/EagleC2',
-    description = 'A deep-learning framework for predicting a full range of structural variations from bulk and single-cell contact maps',
+    description = 'Comprehensive detection of multiscale and non-canonical structural variations from Hi-C data',
     keywords = 'Hi-C cooler deep-learning SVs',
     packages = setuptools.find_packages(),
     package_data = {

@@ -43,7 +43,6 @@ Navigation
 - `Visualize local contact patterns around SV breakpoints`_
 - `Post-processing and filtering of SV predictions`_
 - `Evaluation of predefined SVs`_
-- `Clustering of single cells based on EagleC2 predictions`_
 
 Installation
 ============
@@ -235,7 +234,7 @@ Computation is parallelized using 8 CPU cores (set via ``-p 8``). If a GPU is av
 the ``--cpu`` flag is not set, model inference will run on the GPU.
 
 Output interpretation
-----------------------
+---------------------
 After ~5 minutes (depending on your machine), you will find the predicted SVs in a .txt file
 named "FY1199_EagleC2.SV_calls.txt" in your working directory::
 
@@ -347,7 +346,6 @@ For the filtering of HCC1954 Arima results used in Figure3-5, we used the follow
 
 Evaluation of predefined SVs
 ============================
-
 EagleC2 provides an evaluation mode for rapid and accurate screening of predefined SV lists. Execute the following command to evaluate predefined SV lists with Hi-C dataset::
 
 $ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954 --model-path --resolutions 5000,10000,50000 --balance-type Raw
@@ -357,8 +355,7 @@ For view a full description of each parameter, run::
     $ evaluateSV -h
 
 Output interpretation
-----------------------
-
+---------------------
 After evaluation, you will find the evaluated SVs in a .txt file named "HCC1954.SV_evaluate.txt" in your working directory::
 
     $ cat HCC1954.SV_evaluate.txt
