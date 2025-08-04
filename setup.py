@@ -32,8 +32,6 @@ setuptools.setup(
         '': ['data/*']
     },
     scripts = glob.glob('scripts/*'),
-    long_description = read('README.rst'),
-    long_description_content_type='text/x-rst',
     classifiers = [
         'Programming Language :: Python :: 3 :: Only',
         'Operating System :: POSIX',

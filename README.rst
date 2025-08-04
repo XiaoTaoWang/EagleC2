@@ -1,5 +1,5 @@
 EagleC2
-*******
+=======
 Hi-C has emerged as a powerful tool for detecting structural variations (SVs), but its
 sensitivity remains limited—particularly for SVs lacking canonical contact patterns. Here,
 we introduce EagleC2, a next-generation deep-learning framework that integrates an ensemble
@@ -12,7 +12,7 @@ fusions involving extremely small fragments—that are frequently missed by exis
 individual cancer genomes, EagleC2 detects over a thousand previously unrecognized SVs, the
 majority of which are supported by orthogonal evidence. To support clinical and diagnostic
 applications, EagleC2 also offers a rapid evaluation mode for accurately screening predefined
-SV lists, even at ultra-low coverage (e.g., 1× depth). When applied to single-cell Hi-C data
+SV lists, even at ultra-low coverage (e.g., 1x depth). When applied to single-cell Hi-C data
 from glioblastoma before and after erlotinib treatment, EagleC2 reveals extensive SV heterogeneity
 and dynamic structural changes, including events overlooked by conventional pipelines. These
 findings establish EagleC2 as a powerful and versatile framework for SV discovery, with broad
@@ -28,7 +28,7 @@ Compared with the original EagleC, EagleC2 has the following unique features:
 - EagleC2 is able to detect non-canonical SVs, including fine-scale complex rearrangements
   (multiple SVs clustered within a local window) and fusions involving extremely small fragments
 - EagleC2 offers a rapid evaluation mode for accurately screening predefined SV lists,
-  even at ultra-low coverage (e.g., 1× depth)
+  even at ultra-low coverage (e.g., 1x depth)
 - EagleC2 supports arbitrary resolutions, without requiring model re-training for each resolution
 - EagleC2 enables fast genome-wide SV prediction on large Hi-C datasets without the need for
   distributed computing across multiple nodes
