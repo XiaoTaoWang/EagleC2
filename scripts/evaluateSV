@@ -182,8 +182,6 @@ def main():
         # match original SVs
         collect = []
         for c1, c2 in sv_bychrom:
-            if not c1 in chroms or not c2 in chroms:
-                continue
             for p1, p2 in sv_bychrom[(c1, c2)]:
                 for res in resolutions:
                     if not res in original_predictions:
