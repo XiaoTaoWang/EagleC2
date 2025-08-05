@@ -339,7 +339,7 @@ and a .txt file with breakpoint coordinates, and outputs a .txt file containing 
 results.
 
 To demonstrate its usage, download the example SV file (`HCC1954-SVs.txt <>`_, which contains a
-subset of SVs identified from WGS in HCC1954 cells) and the HCC1954 Arima Hi-C `.mcool <https://www.jianguoyun.com/p/DflNa78Qh9qdDBjz-YIGIAA>`_` file::
+subset of SVs identified from WGS in HCC1954 cells) and the HCC1954 Arima Hi-C `.mcool <https://www.jianguoyun.com/p/DflNa78Qh9qdDBjz-YIGIAA>`_ file::
 
   $ cat HCC1954-SVs.txt
 
