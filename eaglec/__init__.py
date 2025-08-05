@@ -3,7 +3,7 @@
 # Author: XiaoTao Wang
 
 __author__ = 'XiaoTao Wang'
-__version__ = '2.0'
+__version__ = '2.1'
 
 Me = __file__
 
