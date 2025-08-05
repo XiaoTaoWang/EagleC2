@@ -338,7 +338,7 @@ This command takes as input the paths to a .mcool file, a folder containing pre-
 and a .txt file with breakpoint coordinates, and outputs a .txt file containing the evaluation
 results.
 
-To demonstrate its usage, download the example SV file (`HCC1954-SVs.txt <>`_, which contains a
+To demonstrate its usage, download the example SV file (`HCC1954-SVs.txt <https://www.jianguoyun.com/p/DfffNUkQh9qdDBiv-oIGIAA>`_, which contains a
 subset of SVs identified from WGS in HCC1954 cells) and the HCC1954 Arima Hi-C `.mcool <https://www.jianguoyun.com/p/DflNa78Qh9qdDBjz-YIGIAA>`_ file::
 
   $ cat HCC1954-SVs.txt
