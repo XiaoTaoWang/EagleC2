@@ -330,7 +330,7 @@ Post-processing and filtering of SV predictions
 ===============================================
 To refine the SV predictions, you can filter them based on probability values and resolution. The script provides two mutually exclusive filtering strategies.
 
-Filtering Strategies
+Filtering Strategies:
 
 Resolution-specific filtering: This mode allows you to set distinct probability cutoffs for one or more specific resolutions. You need provide both the --res-cutoffs and --res-list arguments, ensuring that the number of values in each list corresponds to one another.
 
@@ -361,7 +361,12 @@ After evaluation, you will find the evaluated SVs in a .txt file named "HCC1954.
     $ cat HCC1954.SV_evaluate.txt
 
     chrom1	pos1	chrom2	pos2	strand	probability	hic_pos1	hic_pos2	resolution
-    chr20	12500000	chr9	8000000	--	5.516e-05	12505000	8010000	5000
-    chr17	39050000	chr17	72400000	++/--	0.01976	39060000	72395000	5000
+    chr7    61063468        chr7    62312711        --      0.02755 61050000        62300000        5000
+    chr4    149955543       chr5    110119750       ++      1       149955000       110115000       5000
+    chr4    169792818       chr5    504220  +-      0.001578        169790000       495000  5000
+
+    
+
+
 
 Note: SVs with no Hi-C contact signals in the breakpoints' window will not be reported in the .txt files.
