@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 ## Required modules
 import argparse, sys, logging, eaglec, os
 
@@ -23,8 +22,8 @@ def getargs():
                         help="Path to the input .mcool file.")
     parser.add_argument('-o', '--output-file', required=True,
                         help="Path to the output .pkl file for storing the final results.")
-    parser.add_argument('--model-path',default='EagleC2-models',
-                        help="Path to the folder containing pre-trained models.")
+    parser.add_argument('--model-path', required=True, default='./EagleC2-models',
+                        help="Path to the folder containing pre-trained EagleC2 TensorFlow models.")
 
     # --- Analysis Arguments ---
     parser.add_argument('--resolutions', default='5000,10000,25000',
@@ -36,7 +35,7 @@ def getargs():
 
     # --- Performance Arguments ---
     parser.add_argument('-p', '--nproc', type=int, default=8,
-                        help="The maximum number of processes to be allocated.")
+                        help="Maximum number of processes for parallel computation.")
     parser.add_argument('--batch-size', type=int, default=256,
                         help="Batch size for model prediction.")
     
@@ -49,6 +48,8 @@ def main():
     args = getargs()
         
     import cooler
+    import glob
+    import joblib
     import numpy as np
     import tensorflow as tf
     from collections import defaultdict
@@ -64,7 +65,7 @@ def main():
         coords = {}
         with open(fil, 'r') as source:
             for line in source:
-                c1, c2,p1, p2 = line.rstrip().split()
+                c1, p1,c2, p2 = line.rstrip().split()
                 p1, p2 = int(p1), int(p2)
                 if c1 > c2:
                     c1, c2 = c2, c1
@@ -242,12 +243,17 @@ def main():
         sv_evaluated = find_best_prediction(sv_probs)
         eval_res[res] = sv_evaluated
 
+    output = []
+    for res, svs in eval_res.items():
+        for c1, c2, p1, p2, strand, prob, hic_p1, hic_p2 in svs:
+            output.append((c1, c2, p1, p2, strand, prob, hic_p1, hic_p2,res))
+    output = sorted(output ,key=lambda x: (x[0], x[1], x[2], x[3], x[-1]))
     # --- 4. Save Results ---
     with open(f'{args.output_file}.SV_evaluate.txt', 'w') as out:
-        out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', 'strand', 'probability', 'hic_pos1', 'hic_pos2', 'resolution']) + '\n')
-        for res, svs in eval_res.items():
-            for c1, c2, p1, p2, strand, prob, hic_p1, hic_p2 in svs:
-                out.write(f"{c1}\t{p1}\t{c2}\t{p2}\t{strand}\t{prob:.4g}\t{hic_p1}\t{hic_p2}\t{res}\n")
+        out.write('\t'.join(['chrom1', 'pos1', 'chrom2', 'pos2', 'strand', 'probability', 'resolution']) + '\n')
+        for row in output:
+            c1, c2, p1, p2, strand, prob, hic_p1, hic_p2,res = row
+            out.write(f"{c1}\t{p1}\t{c2}\t{p2}\t{strand}\t{prob:.4g}\t{res}\n")
     logger.info("Processing complete!")
 
 

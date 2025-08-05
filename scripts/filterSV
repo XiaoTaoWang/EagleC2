@@ -1,6 +1,5 @@
 #!/usr/bin/env python
-
-
+# created on Wed Jul 16 2025
 
 ## Required modules
 import argparse, sys, logging, eaglec, os
@@ -21,8 +20,8 @@ def getargs():
     # Input/Output
     parser.add_argument('-i', '--input-file',
                         help='Path to the input EagleC2 SV calls file.')
-    parser.add_argument('-O', '--output-prefix',
-                        default='EagleC2.SV_calls.filtered',
+    parser.add_argument('-O', '--output',
+                        default='EagleC2.SV_calls.filtered.txt',
                         help='Prefix for the output filtered SV calls file.')
 
 
@@ -37,18 +36,6 @@ def getargs():
                               help='Comma-separated list of resolutions to keep --res-cutoffs. '
                                    'Must be used with --res-cutoffs and have the same number of values. '
                                    'E.g., "5000,10000,50000"')
-
-    # Group 2: High/Low resolution cutoffs
-    filter_group.add_argument('--high-low-cutoffs', action='store_true',
-                              help='Use the default high/low resolution cutoffs (--high-res-cutoff, --low-res-cutoff). '
-                                   'This flag must be set to enable these cutoffs.')
-    parser.add_argument('--high-res-cutoff', type=float, default=0.5,
-                        help='Probability cutoff for SVs refined at resolutions <= 10000. Only used with --high-low-cutoffs.')
-    parser.add_argument('--low-res-cutoff', type=float, default=0.99,
-                        help='Probability cutoff for SVs refined at resolutions > 10000 '
-                             'and where original and refined resolutions are the same. Only used with --high-low-cutoffs.')
-
-
     ## Parse the command-line arguments
     args = parser.parse_args()
 
@@ -126,6 +113,9 @@ def run():
         res_list = [int(res) for res in res_list]
         res_cutoffs = args.res_cutoffs[0].split(',')
         res_cutoffs = [float(cutoff) for cutoff in res_cutoffs]
+        if len(res_list) != len(res_cutoffs):
+            print("Error: The number of resolutions and cutoffs must match.")
+            sys.exit(1)
         res_detail_cutoffs = dict(zip(res_list, res_cutoffs))
         print(f"Applying resolution-specific cutoffs: {res_detail_cutoffs}")
         for row_key, data in sv_pool.items():
@@ -136,34 +126,14 @@ def run():
                 cutoff = res_detail_cutoffs[res_finemapped]
                 if prob_max >= cutoff:
                     svs_filtered[row_key] = data['line']
-
-    elif args.high_low_cutoffs:
-        # Apply high/low resolution cutoffs
-        print(f"Applying general high/low resolution cutoffs (High: {args.high_res_cutoff}, Low: {args.low_res_cutoff})")
-        for row_key, data in sv_pool.items():
-            prob_max = max(data['probs'])
-            res_origin = data['res_origin']
-            res_finemapped = data['res_finemapped']
-
-            keep = True
-            if res_finemapped <= 10000:
-                if prob_max < args.high_res_cutoff:
-                    keep = False
-            elif res_finemapped > 10000 and res_finemapped == res_origin:
-                if prob_max < args.low_res_cutoff:
-                    keep = False
-
-            if keep:
-                svs_filtered[row_key] = data['line']
     else:
         # This case should ideally not be reached due to required=True in mutually_exclusive_group
-        print("No filtering strategy selected. Exiting.")
+        print("No filtering parameters was applied. Please check your arguments.")
 
-
-    print(f"Found {len(svs_filtered)} SVs after applyingfilters.")
+    print(f"Found {len(svs_filtered)} SVs after applying filters.")
 
     # Write filtered SVs to output file
-    output_filepath = f"{args.output_prefix}.txt"
+    output_filepath = f"{args.output}"
     with open(output_filepath, 'w') as out:
         # Ensure the header is correctly written (from the parsed file)
         out.write(header + '\n')
