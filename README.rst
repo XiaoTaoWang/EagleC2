@@ -364,10 +364,10 @@ your working directory::
 This output file contains 7 columns. For each SV and at each specified resolution, the following
 information is reported:
 
-  - Breakpoint coordinates (same as the first four columns of the input file)
-  - SV type with the highest probability (one of: ++, +-, -+, --, ++/--, or +-/-+)
-  - Corresponding probability score
-  - Resolution at which the SV was evaluated
+- Breakpoint coordinates (same as the first four columns of the input file)
+- SV type with the highest probability (one of: ++, +-, -+, --, ++/--, or +-/-+)
+- Corresponding probability score
+- Resolution at which the SV was evaluated
 
 Note: If there are no Hi-C signals within a 15x15 window centered on an SV at a given resolution,
 the SV will not be reported at that resolution. For resolutions with sufficient signal, the program
