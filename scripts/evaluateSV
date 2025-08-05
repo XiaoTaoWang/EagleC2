@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+
 ## Required modules
 import argparse, sys, logging, eaglec, os
 
@@ -22,8 +23,8 @@ def getargs():
                         help="Path to the input .mcool file.")
     parser.add_argument('-o', '--output-file', required=True,
                         help="Path to the output .pkl file for storing the final results.")
-    parser.add_argument('--model-path', required=True, default='./EagleC2-models/EagleC2-models.TF',
-                        help="Path to the folder containing pre-trained EagleC2 TensorFlow models.")
+    parser.add_argument('--model-path',default='EagleC2-models',
+                        help="Path to the folder containing pre-trained models.")
 
     # --- Analysis Arguments ---
     parser.add_argument('--resolutions', default='5000,10000,25000',
@@ -35,7 +36,7 @@ def getargs():
 
     # --- Performance Arguments ---
     parser.add_argument('-p', '--nproc', type=int, default=8,
-                        help="Maximum number of processes for parallel computation.")
+                        help="The maximum number of processes to be allocated.")
     parser.add_argument('--batch-size', type=int, default=256,
                         help="Batch size for model prediction.")
     
@@ -48,8 +49,6 @@ def main():
     args = getargs()
         
     import cooler
-    import glob
-    import joblib
     import numpy as np
     import tensorflow as tf
     from collections import defaultdict
@@ -58,8 +57,8 @@ def main():
     # If these are part of your project, ensure they are importable
     from eaglec.utilities import distance_normaize_core, image_normalize, calculate_expected
     from eaglec.extractMatrix import check_sparsity
+    from eaglec.predictCore import load_models, convert2TF
 
-        
     def parse_SVs(fil):
 
         coords = {}
@@ -77,34 +76,7 @@ def main():
         
         return coords
 
-    def load_models(root_folder):
-
-        model_paths = glob.glob(os.path.join(root_folder, 'EagleC2-model*'))
-        models = []
-        for f in model_paths:
-            model = tf.saved_model.load(f)
-            inference_func = model.signatures['serving_default']
-            models.append(inference_func)
-        
-        return models
-
-    def transform_dataset(image):
-
-        input_1 = tf.expand_dims(image[:,5:-5,5:-5], axis=-1)
-        input_2 = tf.expand_dims(image, axis=-1)
-
-        return input_1, input_2
-
-    def convert2TF(images, batch_size=256):
-
-        images = images.astype(np.float32)
-        images = tf.data.Dataset.from_tensor_slices(images)
-        images = images.batch(batch_size)
-        images = images.map(transform_dataset)
-        images = images.cache()
-
-        return images
-
+    
     def collect_images_core(clr, coords, balance, exp_dict, w=15, buff=20000):
 
         res = clr.binsize
@@ -147,32 +119,10 @@ def main():
         
         return images, sv_coords, window_coords
 
-    def predict_core(concrete_func, dataset):
 
-        # sort input names according to the expected input shape
-        input_signature = concrete_func.structured_input_signature[1]
-        input_names = []
-        for name, tensor_spec in input_signature.items():
-            input_names.append((tensor_spec.shape[1], name))
-        input_names.sort()
-
-        all_probs = []
-        for batch in dataset:
-            input_dict = {input_names[0][1]: batch[0],
-                        input_names[1][1]: batch[1]}
-            preds = concrete_func(**input_dict)
-            probs = preds['output_0']
-            all_probs.append(probs)
-        
-        all_probs_tensor = tf.concat(all_probs, axis=0)
-        all_probs_arr = all_probs_tensor.numpy()
-
-        return all_probs_arr
-
-
-    def predict(eval_funcs, images, sv_coords, batch_size=256,window_coords=None):
+    def predict(models, images, sv_coords, batch_size=256,window_coords=None):
         images = convert2TF(images, batch_size)
-        prob_pool = np.stack([predict_core(eval_func, images) for eval_func in eval_funcs])
+        prob_pool = np.stack([model.predict(images) for model in models])
         prob_mean = prob_pool.mean(axis=0)[:,:6]
         sv_probs = defaultdict(list)
         for i in range(prob_mean.shape[0]):
