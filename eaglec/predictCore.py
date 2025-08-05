@@ -31,6 +31,30 @@ def convert2TF(images, batch_size=256):
 
     return images
 
+def evaluate(cache_folder, models, batch_size=256):
+
+    queue = get_queue(cache_folder, maxn=100000, pattern='collect*.pkl')
+    original_predictions = {}
+    SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
+    for data in queue:
+        images = np.r_[[d[0] for d in data]]
+        images = convert2TF(images, batch_size)
+        coords = [d[1] for d in data]
+        prob_pool = np.stack([model.predict(images) for model in models])
+        prob_mean = prob_pool.mean(axis=0)[:,:6]
+        for i in range(prob_mean.shape[0]):
+            c1, p1, c2, p2, res = coords[i]
+            prob = prob_mean[i]
+            maxi = prob.argmax()
+            sv = SV_labels[maxi]
+            if not res in original_predictions:
+                original_predictions[res] = {}
+            
+            original_predictions[res][(c1, c2, p1, p2)] = [sv, prob[maxi]]
+
+    return original_predictions
+
+
 def predict(cache_folder, models, ref_gaps, prob_cutoff=0.75, max_gap=1, batch_size=256):
 
     queue = get_queue(cache_folder, maxn=100000, pattern='collect*.pkl')
