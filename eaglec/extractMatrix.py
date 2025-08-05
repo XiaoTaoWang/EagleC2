@@ -55,9 +55,10 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
                 if c1 == c2:
                     window = distance_normaize_core(window, exp, x, y, w)
                 
-                score = entropy(window, 11, 4)
-                if score > entropy_cutoff:
-                    continue
+                if entropy_cutoff < 1:
+                    score = entropy(window, 11, 4)
+                    if score > entropy_cutoff:
+                        continue
 
                 window = image_normalize(window)
                 data.append((window, (c1, x, c2, y, res)))
@@ -98,9 +99,10 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w,
                 if c1 == c2:
                     window = distance_normaize_core(window, exp, x, y, w)
                 
-                score = entropy(window, 3, 4)
-                if score > entropy_cutoff:
-                    continue
+                if entropy_cutoff < 1:
+                    score = entropy(window, 3, 4)
+                    if score > entropy_cutoff:
+                        continue
 
                 window = image_normalize(window)
                 window_full = np.random.random((31, 31)) * window[window>0].min()

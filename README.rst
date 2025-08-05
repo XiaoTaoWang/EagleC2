@@ -249,6 +249,11 @@ there are no problematic bins in reference genome (hg38, as specified by the par
     All key parameters that may affect the sensitivity and specificity of SV prediction
     are configurable via command-line options. For details, please refer to the help
     message of the *predictSV* command by running ``predictSV -h``.
+  
+.. note::
+    During prediction, intermediate files will be stored in a hidden folder named ".eaglec2"
+    within your working directory. You may remove this folder after the process completes to
+    free up disk space.
 
 Prediction command used in the paper
 ------------------------------------
@@ -350,15 +355,15 @@ ignored during evaluation.
 
 Then run the following command::
 
-  $ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954-SVs.evaluated.txt \
+  $ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954-SVs.EagleC2 \
                --model-path EagleC2-models --resolutions 5000,10000,50000 --balance-type Raw
 
 This command evaluates the SVs using raw contact signals at 5 kb, 10 kb, and 50 kb resolutions.
 
-After a few minutes, the results will be written to a .txt file named "HCC1954-SVs.evaluated.txt" in
+After a few minutes, the results will be written to a .txt file named "HCC1954-SVs.EagleC2.txt" in
 your working directory::
 
-  $ cat HCC1954-SVs.evaluated.txt
+  $ cat HCC1954-SVs.EagleC2.txt
 
    chr1    146145370       chr1    149080750       --      2.158e-05       10000
    chr1    168919092       chr1    230073549       --      4.182e-09       10000
