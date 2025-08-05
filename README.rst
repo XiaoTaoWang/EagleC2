@@ -142,24 +142,7 @@ terminal window to view the basic usage of each command.
 
 - evaluateSV
 
-  Evaluates a predefined list of SVs using EagleC2 models. 
-
-  Required inputs:
-
-  1. Path to a .mcool file.
-  2. Path to the folder containing the pre-trained models.
-  3. Path to a .txt file containing breakpoint coordinates, with chrom1, pos1, chrom2,
-     and pos2 in the first four columns. Columns must be separated by tabs or spaces.
-
-  Output:
-
-  A .txt file with 7 columns. For each SV and at each specified resolution, the following
-  information is reported:
-
-  - Breakpoint coordinates (same as the first four columns of the input file)
-  - SV type with the highest probability (one of: ++, +-, -+, --, ++/--, or +-/-+)
-  - Corresponding probability score
-  - Resolution at which the SV was evaluated
+  Evaluates a predefined list of SVs using EagleC2 models.
 
 - reformatSV
 
@@ -350,27 +333,42 @@ excluded.
 
 Evaluation of predefined SVs
 ============================
-EagleC2 provides an evaluation mode for rapid and accurate screening of predefined SV lists. Execute the following command to evaluate predefined SV lists with Hi-C dataset::
+To evaluate a predefined list of SVs using EagleC2 models, the *evaluateSV* command can be used.
+This command takes as input the paths to a .mcool file, a folder containing pre-trained models,
+and a .txt file with breakpoint coordinates, and outputs a .txt file containing the evaluation
+results.
 
-$ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954 --model-path --resolutions 5000,10000,50000 --balance-type Raw
+To demonstrate its usage, download the example SV file (`HCC1954-SVs.txt <>`_, which contains a
+subset of SVs identified from WGS in HCC1954 cells) and the HCC1954 Arima Hi-C `.mcool <https://www.jianguoyun.com/p/DflNa78Qh9qdDBjz-YIGIAA>`_` file::
 
-For view a full description of each parameter, run::
-
-    $ evaluateSV -h
-
-Output interpretation
----------------------
-After evaluation, you will find the evaluated SVs in a .txt file named "HCC1954.SV_evaluate.txt" in your working directory::
-
-    $ cat HCC1954.SV_evaluate.txt
-
-    chrom1	pos1	chrom2	pos2	strand	probability	hic_pos1	hic_pos2	resolution
-    chr7    61063468        chr7    62312711        --      0.02755 61050000        62300000        5000
-    chr4    149955543       chr5    110119750       ++      1       149955000       110115000       5000
-    chr4    169792818       chr5    504220  +-      0.001578        169790000       495000  5000
-
-    
+  $ cat HCC1954-SVs.txt
 
 
+The input SV file should contain breakpoint coordinates: chrom1, pos1, chrom2, and pos2 in the first
+four columns, separated by tabs or spaces. The file may include additional columns, but they will be
+ignored during evaluation. 
 
-Note: SVs with no Hi-C contact signals in the breakpoints' window will not be reported in the .txt files.
+Then run the following command::
+
+  $ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954-SVs.evaluated.txt \
+               --model-path EagleC2-models --resolutions 5000,10000,50000 --balance-type Raw
+
+This command evaluates the SVs using raw contact signals at 5 kb, 10 kb, and 50 kb resolutions.
+
+After a few minutes, the results will be written to a .txt file named "HCC1954-SVs.evaluated.txt" in
+your working directory::
+
+  $ cat HCC1954-SVs.evaluated.txt
+
+
+This output file contains 7 columns. For each SV and at each specified resolution, the following
+information is reported:
+
+  - Breakpoint coordinates (same as the first four columns of the input file)
+  - SV type with the highest probability (one of: ++, +-, -+, --, ++/--, or +-/-+)
+  - Corresponding probability score
+  - Resolution at which the SV was evaluated
+
+Note: If there are no Hi-C signals within a 15x15 window centered on an SV at a given resolution,
+the SV will not be reported at that resolution. For resolutions with sufficient signal, the program
+performs no filtering—so the output may include SVs with very low probability scores.
