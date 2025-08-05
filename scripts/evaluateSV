@@ -59,7 +59,7 @@ def main():
         from collections import defaultdict
         from eaglec.utilities import calculate_expected
         from eaglec.extractMatrix import collect_images
-        from eaglec.predictCore import load_models,get_queue,convert2TF
+        from eaglec.predictCore import load_models, get_queue, convert2TF
 
         def evaluate(cache_folder, models, batch_size=256):
 

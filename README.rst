@@ -55,7 +55,7 @@ for EagleC2 by executing the following commands (for Linux users)::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2 cooler hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4 "tensorflow>=2.16"
+    $ mamba create -n EagleC2 hdbscan numba statsmodels cooler=0.9 joblib=1.3 numpy=1.26 scikit-learn=1.4 "tensorflow>=2.16"
     $ mamba activate EagleC2
     $ pip install eaglec
 
@@ -79,7 +79,7 @@ and its dependencies with::
     $ mamba clean --all
     $ mamba create -n EagleC2gpu python=3.11 hdbscan numba statsmodels joblib=1.3 numpy=1.26 scikit-learn=1.4
     $ mamba activate EagleC2gpu
-    $ pip install --no-cache-dir cooler
+    $ pip install --no-cache-dir cooler==0.9.1
     $ pip install --no-cache-dir tensorflow==2.16.1 keras==3.3.3
     $ pip install --no-cache-dir tensorflow-metal==1.1.0
     $ pip install eaglec
@@ -346,8 +346,13 @@ results.
 To demonstrate its usage, download the example SV file (`HCC1954-SVs.txt <https://www.jianguoyun.com/p/DfffNUkQh9qdDBiv-oIGIAA>`_, which contains a
 subset of SVs identified from WGS in HCC1954 cells) and the HCC1954 Arima Hi-C `.mcool <https://www.jianguoyun.com/p/DflNa78Qh9qdDBjz-YIGIAA>`_ file::
 
-  $ cat HCC1954-SVs.txt
+  $ head HCC1954-SVs.txt
 
+  chr2	131643352	chr7	44807635
+  chr21	41391239	chr8	120011960
+  chr16	34171022	chr20	30928661
+  chr22	32887577	chr5	116559449
+  chr5	118443982	chr8	109240006
 
 The input SV file should contain breakpoint coordinates: chrom1, pos1, chrom2, and pos2 in the first
 four columns, separated by tabs or spaces. The file may include additional columns, but they will be
@@ -355,7 +360,7 @@ ignored during evaluation.
 
 Then run the following command::
 
-  $ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -o HCC1954-SVs.EagleC2 \
+  $ evaluateSV -i HCC1954-SVs.txt -m HCC1954-Arima-allReps-filtered.mcool -O HCC1954-SVs.EagleC2 \
                --model-path EagleC2-models --resolutions 5000,10000,50000 --balance-type Raw
 
 This command evaluates the SVs using raw contact signals at 5 kb, 10 kb, and 50 kb resolutions.
@@ -363,14 +368,13 @@ This command evaluates the SVs using raw contact signals at 5 kb, 10 kb, and 50 
 After a few minutes, the results will be written to a .txt file named "HCC1954-SVs.EagleC2.txt" in
 your working directory::
 
-  $ cat HCC1954-SVs.EagleC2.txt
+  $ head -5 HCC1954-SVs.EagleC2.txt
 
-   chr1    146145370       chr1    149080750       --      2.158e-05       10000
-   chr1    168919092       chr1    230073549       --      4.182e-09       10000
-   chr1    193332484       chr1    193501955       +-      0.9992  5000
-   chr1    193332484       chr1    193501955       +-      0.9609  10000
-
-
+    chrom1	pos1	chrom2	pos2	strand	probability	resolution
+    chr2	131643352	chr7	44807635	++/--	2.068e-08	50000
+    chr2	103773984	chr7	148264670	++	3.948e-07	50000
+    chr2	157420649	chr7	111890623	-+	3.604e-06	50000
+    chr2	33059444	chr7	65078783	++	2.649e-06	50000
 
 This output file contains 7 columns. For each SV and at each specified resolution, the following
 information is reported:
