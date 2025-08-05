@@ -62,7 +62,8 @@ for EagleC2 by executing the following commands (for Linux users)::
 This will intall the core dependencies required to run EagleC2.
 
 If you also wish to use the visualization module, please install the following
-additional packages::
+additional packages (*pyBigWig* is only required if you want to plot signals
+from BigWig files)::
 
     $ mamba install matplotlib pyBigWig
 

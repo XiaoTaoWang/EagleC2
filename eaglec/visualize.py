@@ -1,4 +1,4 @@
-import itertools, cooler, pyBigWig
+import itertools, cooler
 import numpy as np
 import matplotlib
 #matplotlib.use('Agg')
@@ -137,6 +137,8 @@ class intraChrom(object):
         '''
         Choices for data_range_style: ['y-axis', 'text'].
         '''
+        import pyBigWig
+
         db = pyBigWig.open(bw_fil)
         arr = np.array(db.stats(self.chrom, self.start, self.end, nBins=nBins)).astype(float)
         arr[np.isnan(arr)] = 0
