@@ -271,32 +271,29 @@ there are no problematic bins in reference genome (hg38, as specified by the par
 
 Prediction command used in the paper
 ------------------------------------
-For the BT-474 Hi-C dataset used in Figure 2, we used the following command
-(for HCC1954 and MCF7, the same parameters were used with different `.mcool`
+For the BT-474 Hi-C dataset in Figure 2, we used the following command
+(for HCC1954 and MCF7, the same parameters were used with different .mcool
 inputs)::
 
     $ predictSV --mcool BT474.used_for_SVpredict.mcool --resolutions 5000,10000,50000 \
                 --high-res 2000 -O BT474_EagleC2 -g hg38 --balance-type CNV \
                 -p 8 --intra-extend-size 2,2,1 --inter-extend-size 1,1,1
 
-For the HCC1954 Arima Hi-C dataset used in Figure 3, we used the following command::
-
-    $ predictSV --mcool HCC1954-Arima-allReps-filtered.mcool --resolutions 2000,5000,10000,25000,50000,100000,250000,500000,1000000 \
-            --high-res 500 -O HCC1954-Arima -g hg38 --balance-type CNV \
-            -p 8 --entropy-cutoff 0.98 --intra-extend-size 3,3,2,2,2,1,1,1,1 \
-            --inter-extend-size 2,2,1,1,1,1,1,1,1
-and::
+For the HCC1954 Arima Hi-C dataset in Figure 3, we used the following command
+(we also ran with ``--balance-type Raw`` and ``--balance-type CNV``, keeping all
+other parameters unchanged)::
 
   $ predictSV --mcool HCC1954-Arima-allReps-filtered.mcool --resolutions 1000,2000,5000,10000,25000,50000,100000,250000,500000,1000000 \
             --high-res 500 -O HCC1954-Arima -g hg38 --balance-type ICE \
             -p 8 --entropy-cutoff 0.98 --intra-extend-size 3,3,3,2,2,2,1,1,1,1 \
             --inter-extend-size 2,2,2,1,1,1,1,1,1,1
 
-For the single-cell Hi-C datasets used in Figure 6, we used the following command
-to predict SVs from pseudo-bulk contact matrices::
+For the single-cell Hi-C datasets in Figure 6, we used the following command
+to predict SVs from pseudo-bulk contact matrices (we also ran with ``--balance-type Raw``,
+keeping all other parameters unchanged)::
 
     $ predictSV --mcool GBM39-pseudo-bulk.mcool --resolutions 5000,10000,25000,50000,100000,250000,500000,1000000 \
-            --high-res 500 -O GBM39-pseudo-bulk -g hg38 --balance-type CNV \
+            --high-res 500 -O GBM39-pseudo-bulk -g hg38 --balance-type ICE \
             -p 8 --entropy-cutoff 0.98 --intra-extend-size 3,2,2,2,1,1,1,1 \
             --inter-extend-size 2,1,1,1,1,1,1,1
 
