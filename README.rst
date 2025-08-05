@@ -360,6 +360,12 @@ your working directory::
 
   $ cat HCC1954-SVs.evaluated.txt
 
+   chr1    146145370       chr1    149080750       --      2.158e-05       10000
+   chr1    168919092       chr1    230073549       --      4.182e-09       10000
+   chr1    193332484       chr1    193501955       +-      0.9992  5000
+   chr1    193332484       chr1    193501955       +-      0.9609  10000
+
+
 
 This output file contains 7 columns. For each SV and at each specified resolution, the following
 information is reported:
