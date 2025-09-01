@@ -55,7 +55,7 @@ for EagleC2 by executing the following commands (for Linux users)::
     $ conda config --add channels defaults
     $ conda config --add channels bioconda
     $ conda config --add channels conda-forge
-    $ mamba create -n EagleC2 hdbscan numba statsmodels cooler=0.9 joblib=1.3 numpy=1.26 scikit-learn=1.4 "tensorflow>=2.16"
+    $ mamba create -n EagleC2 hdbscan numba statsmodels python=3.11 cooler=0.9 joblib=1.3 numpy=1.26 scikit-learn=1.4 "tensorflow>=2.16"
     $ mamba activate EagleC2
     $ pip install eaglec
 
