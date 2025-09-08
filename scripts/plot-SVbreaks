@@ -81,6 +81,8 @@ def run():
         exp = expected_values[matched_res]
 
         # extract and normalize the submatrix
+        p1 = (p1//res)*res
+        p2 = (p2//res)*res
         interval1 = (c1, max(p1-res*w, 0), min(p1+res*w+res, chromsize[c1]))
         interval2 = (c2, max(p2-res*w, 0), min(p2+res*w+res, chromsize[c2]))
         M = clr.matrix(balance=correct, sparse=False).fetch(interval1, interval2)
