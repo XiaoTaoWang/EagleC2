@@ -21,12 +21,11 @@ def getargs():
                         version=' '.join(['%(prog)s',currentVersion]),
                         help='Print version number and exit.')
 
-    parser.add_argument('--input-file', help='''Path to the a file outputted by the predictSV command.
-                        This file should includes 13 columns for each SV, including breakpoint coordinates,
-                        probability values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the
-                        resolution of the contact matrix from which the SV is originally predicted, the
-                        finest resolution where the SV can be mapped, the number of bad bins near the SV
-                        breakpoints.''')
+    parser.add_argument('--input-file', required=True, help='''Path to a file outputted by the predictSV command.
+                        The file contains 13 columns: chrom1, pos1, chrom2, pos2, probabilities for ++, +-, -+,
+                        --, ++/--, and +-/-+, original resolution, fine-mapped resolution, and an info field.
+                        The info field encodes gap counts, chromosome-boundary flags, and original/refined support
+                        scores.''')
     parser.add_argument('-O', '--output-file', help='''Output file name.''')
 
     ## Parse the command-line arguments

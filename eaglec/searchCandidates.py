@@ -1,613 +1,304 @@
-import logging, hdbscan
+import tensorflow as tf
+tf.config.optimizer.set_jit(False)
+import logging, cooler, os, joblib
 import numpy as np
-from scipy import stats
-from statsmodels.sandbox.stats.multicomp import multipletests
-from joblib import Parallel, delayed
+import scipy.sparse as sp
 from collections import defaultdict
-from eaglec.utilities import local_background
+from eaglec.utilities import image_normalize
 
 log = logging.getLogger(__name__)
 
-def apply_buff(candi):
+@tf.function(reduce_retracing=True)
+def local_minmax_normalize_2d(x2d, k=21, eps=1e-6):
+    """
+    x2d: tf.Tensor (H, W), float32
+    returns: tf.Tensor (H, W) normalized to ~[0,1] by local k×k min/max
+    """
+    x = tf.cast(x2d, tf.float32)
+    x4 = x[None, :, :, None]  # (1,H,W,1)
 
-    expanded = set()
-    for xi, yi, buf in candi:
-        for i in range(-buf, buf+1):
-            for j in range(-buf, buf+1):
-                expanded.add((xi+i, yi+j))
+    # local max
+    local_max = tf.nn.max_pool2d(x4, ksize=k, strides=1, padding="SAME")[0, :, :, 0]
+    # local min via max_pool on -x
+    local_min = -tf.nn.max_pool2d(-x4, ksize=k, strides=1, padding="SAME")[0, :, :, 0]
 
-    return expanded
+    denom = tf.maximum(local_max - local_min, eps)
+    y = (x - local_min) / denom
+    return tf.clip_by_value(y, 0.0, 1.0)
 
-def iterative_clustering(coords, values, min_cluster_size=4, min_samples=4,
-                         max_cluster_size=100, cut_ratio=0.8, round=3):
+@tf.function(reduce_retracing=True)
+def fcn_sv_probability_map(base_fcn, x2d_norm, neg_index=6):
+    """
+    base_fcn: (1,H,W,1) -> (1,H,W,7 logits)
+    x2d_norm: tf.Tensor (H,W) in [0,1]
+    returns: tf.Tensor (H,W) p_sv
+    """
+    x4 = x2d_norm[None, :, :, None]              # (1,H,W,1)
+    logits = base_fcn(x4, training=False)        # (1,H,W,7)
+    probs = tf.nn.softmax(logits, axis=-1)       # (1,H,W,7)
+    p_non = probs[..., neg_index]                # (1,H,W)
+    p_sv = 1.0 - p_non
+    return p_sv[0]                               # (H,W)
+
+def distance_normalize_block(block_dense, exp, R0, C0):
+    """
+    block_dense: (h,w) dense float32
+    exp: 1D array where exp[d] is expected at distance d
+    R0, C0: absolute start indices of this block in the full matrix
+
+    Returns: distance-normalized block (h,w) float32
+    """
+    h, w = block_dense.shape
+
+    # absolute row/col indices
+    rows = (R0 + np.arange(h))[:, None]          # (h,1)
+    cols = (C0 + np.arange(w))[None, :]          # (1,w)
+
+    D = np.abs(rows - cols).astype(np.int32)     # (h,w)
+
+    # if any distance in this block exceeds exp length, skip distance normalization
+    if D.max() >= exp.size:
+        return block_dense
+
+    denom = exp[D]  # (h,w)
+    out = np.divide(block_dense, denom, out=block_dense.copy(),
+                    where=(denom != 0)).astype(np.float32, copy=False)
+
+    return out
+
+def iter_csr_tiles(M, tile_size=2048, k=21, exp=None, upper_triangular_only=False):
+    """
+    Traverse a CSR sparse matrix in tiles.
+
+    For each tile core [r0:r1, c0:c1], we extract a halo-extended block
+    [R0:R1, C0:C1], apply local window min-max normalization (k×k), and
+    then return only the normalized core region.
+
+    Yields:
+      (r0, r1, c0, c1, core_norm)   where core_norm is a dense float32 array
+                                    with shape (r1-r0, c1-c0)
+    """
+    if not sp.isspmatrix_csr(M):
+        M = M.tocsr()
+
+    n_rows, n_cols = M.shape
+    halo = (k - 1) // 2  # for k=21 => 10
+
+    if not exp is None:
+        exp = np.asarray(exp, dtype=np.float32)
+
+    for r0 in range(0, n_rows, tile_size):
+        r1 = min(r0 + tile_size, n_rows)
+        c_start = r0 if upper_triangular_only else 0
+        for c0 in range(c_start, n_cols, tile_size):
+            c1 = min(c0 + tile_size, n_cols)
+
+            # Extra fast-skip for strict lower triangle (in case of edge alignment)
+            if upper_triangular_only and c1 <= r0:
+                continue
+
+            # halo-extended coordinates
+            R0 = max(0, r0 - halo)
+            R1 = min(n_rows, r1 + halo)
+            C0 = max(0, c0 - halo)
+            C1 = min(n_cols, c1 + halo)
+
+            block = M[R0:R1, C0:C1]
+            if block.nnz == 0:
+                continue
+
+            block_dense = block.toarray().astype(np.float32, copy=False)
+            block_dense = np.nan_to_num(block_dense, nan=0.0, posinf=0.0, neginf=0.0)
+            if not exp is None:
+                block_dense = distance_normalize_block(block_dense, exp, R0, C0)
+
+            # local normalization on the halo-extended dense block
+            block_tf = tf.convert_to_tensor(block_dense, dtype=tf.float32)
+            block_norm = local_minmax_normalize_2d(block_tf, k=k).numpy()
+
+            # crop back to core tile (relative indices inside halo block)
+            rr0 = r0 - R0
+            rr1 = rr0 + (r1 - r0)
+            cc0 = c0 - C0
+            cc1 = cc0 + (c1 - c0)
+
+            core_norm = block_norm[rr0:rr1, cc0:cc1]
+            yield (r0, r1, c0, c1, core_norm)
+
+def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_values,
+                                balance, base_fcn, tile_size=2048, k=21, cutoff=0.3):
     
-    for _ in range(round):
-        x, y = coords.T
-        nx = []
-        ny = []
-        nv = []
-        clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size,
-                                    min_samples=min_samples).fit(coords)
-        for ci in set(clusterer.labels_):
-            mask = clusterer.labels_ == ci
-            x_, y_, v_ = x[mask], y[mask], values[mask]
-            if (ci == -1) or (x_.size < max_cluster_size):
-                nx.extend(list(x_))
-                ny.extend(list(y_))
-                nv.extend(list(v_))
-            else:
-                n = int(np.ceil(x_.size * cut_ratio))
-                sort_table = []
-                for xi, yi, vi in zip(x_, y_, v_):
-                    sort_table.append((vi, xi, yi))
+    candidates = {}
+    count = 0
+    for res in resolutions:
+        clr = cooler.Cooler('{0}::resolutions/{1}'.format(cool_path, res))
+        candidates[res] = defaultdict(list)
+        # cis
+        for chrom in chroms:
+            log.info('Scanning {0} at resolution {1} ...'.format(chrom, res))
+            M = clr.matrix(balance=balance, sparse=True).fetch(chrom).tocsr()
+            for r0, r1, c0, c1, core_norm in iter_csr_tiles(
+                M,
+                tile_size=tile_size,
+                k=k,
+                exp=expected_values[res][chrom],
+                upper_triangular_only=True
+            ):
+                x2d = tf.convert_to_tensor(core_norm, dtype=tf.float32)
+                p_sv_np = fcn_sv_probability_map(base_fcn, x2d).numpy()
+                mask = p_sv_np > cutoff
+                ii_list, jj_list = np.where(mask)
+                for ii, jj in zip(ii_list, jj_list):
+                    abs_i = r0 + ii
+                    abs_j = c0 + jj
+                    candidates[res][(chrom, chrom)].append((abs_i, abs_j, float(p_sv_np[ii, jj])))
+                    count += 1
+
+        # trans        
+        for i in range(len(chroms)-1):
+            for j in range(i+1, len(chroms)):
+                chrom1, chrom2 = chroms[i], chroms[j]
+                log.info('Scanning {0} vs {1} at resolution {2} ...'.format(chrom1, chrom2, res))
+                M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
+                for r0, r1, c0, c1, core_norm in iter_csr_tiles(
+                    M,
+                    tile_size=tile_size,
+                    k=k,
+                    exp=None,
+                    upper_triangular_only=False
+                ):
+                    x2d = tf.convert_to_tensor(core_norm, dtype=tf.float32)
+                    p_sv_np = fcn_sv_probability_map(base_fcn, x2d).numpy()
+                    mask = p_sv_np > cutoff
+                    ii_list, jj_list = np.where(mask)
+                    for ii, jj in zip(ii_list, jj_list):
+                        abs_i = r0 + ii
+                        abs_j = c0 + jj
+                        candidates[res][(chrom1, chrom2)].append((abs_i, abs_j, float(p_sv_np[ii, jj])))
+                        count += 1
+        
+    return candidates, count
+
+def extract_centered_patch_from_matrix(M, center_i, center_j, radius=15, exp=None,
+                                       pad_value=0.0):
+    """
+    Extract a fixed-size patch centered at (center_i, center_j) from full matrix M.
+
+    Parameters
+    ----------
+    M : scipy.sparse.csr_matrix
+        Whole chromosome-wide or chromosome-pair matrix.
+    center_i, center_j : int
+        Absolute bin coordinates within M.
+    radius : int
+        Patch radius. radius=15 gives a 31x31 patch.
+    exp : 1D np.ndarray or None
+        Expected vector for cis matrices. None for trans.
+    pad_value : float
+        Value used when patch crosses chromosome boundary.
+
+    Returns
+    -------
+    out : np.ndarray, shape (2*radius+1, 2*radius+1), dtype float32
+    """
+    if not sp.isspmatrix_csr(M):
+        M = M.tocsr()
+
+    n_rows, n_cols = M.shape
+    out_size = 2 * radius + 1
+
+    r0 = max(0, center_i - radius)
+    r1 = min(n_rows, center_i + radius + 1)
+    c0 = max(0, center_j - radius)
+    c1 = min(n_cols, center_j + radius + 1)
+
+    block = M[r0:r1, c0:c1].toarray().astype(np.float32, copy=False)
+    block = np.nan_to_num(block, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if not exp is None:
+        block = distance_normalize_block(block, exp, r0, c0)
+
+    block = image_normalize(block)
+
+    out = np.full((out_size, out_size), pad_value, dtype=np.float32)
+
+    rr0 = radius - (center_i - r0)
+    cc0 = radius - (center_j - c0)
+    out[rr0:rr0 + (r1 - r0), cc0:cc0 + (c1 - c0)] = block
+
+    return out
+
+def check_sparsity(patch, margin=5, min_nonzero=10):
+
+    sub = patch[margin:-margin, margin:-margin]
+
+    return np.count_nonzero(sub) >= min_nonzero
+
+def collect_candidate_patches(cool_path, candidates, expected_values, out_dir,
+                              balance, radius=15, chunk_size=10000):
+    """
+    Re-extract centered patches from full chromosome-wide / chromosome-pair matrices
+    using candidates organized as:
+
+        candidates[res][(chrom1, chrom2)] = [(abs_i, abs_j, score), ...]
+
+    Parameters
+    ----------
+    cool_path : str
+    candidates : dict
+        Output of iter_cooler_scan_candidates.
+    expected_values : dict
+        expected_values[res][chrom] for cis normalization.
+    out_dir : str
+    balance : str
+    radius : int
+        radius=15 gives 31x31 patches.
+    chunk_size : int
+
+    Returns
+    -------
+    patch_count : int
+        Number of patches collected.
+    """
+    collect_items = []
+    patch_count = 0
+
+    for res in sorted(candidates.keys()):
+        log.info('Collecting patches at resolution {0} ...'.format(res))
+        clr = cooler.Cooler('{0}::resolutions/{1}'.format(cool_path, res))
+
+        # cache one matrix per chromosome pair to avoid repeated fetch
+        for chrom_pair in candidates[res]:
+            chrom1, chrom2 = chrom_pair
+            M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
+            exp = expected_values[res][chrom1] if chrom1 == chrom2 else None
+
+            for abs_i, abs_j, score in candidates[res][chrom_pair]:
+                if chrom1 == chrom2:
+                    if abs_j - abs_i < 6:
+                        continue
                 
-                sort_table.sort(reverse=True)
-                for vi, xi, yi in sort_table[:n]:
-                    nx.append(xi)
-                    ny.append(yi)
-                    nv.append(vi)
-        
-        coords = np.r_[list(zip(nx, ny))]
-        values = np.r_[nv]
-    
-    return x, y, clusterer
+                patch = extract_centered_patch_from_matrix(
+                    M,
+                    center_i=abs_i,
+                    center_j=abs_j,
+                    radius=radius,
+                    exp=exp
+                )
 
-
-def filter_intra_singletons(M, nM, weights, exp, x, y, thre=0.02, ww=3, pw=1):
-
-    mask = (x - ww >= 0) & (x + ww + 1 <= M.shape[0]) & \
-           (y - ww >= 0) & (y + ww + 1 <= M.shape[1])
-    x, y = x[mask], y[mask]
-    x_filtered = []
-    y_filtered = []
-    if x.size > 0:
-        seed = np.arange(-ww, ww+1)
-        delta = np.tile(seed, (seed.size, 1))
-        xxx = x.reshape((x.size, 1, 1)) + delta.T
-        yyy = y.reshape((y.size, 1, 1)) + delta
-        v = np.array(nM[xxx.ravel(), yyy.ravel()]).ravel()
-        vvv = v.reshape((x.size, seed.size, seed.size))
-        for i in range(x.size):
-            xi = x[i]
-            yi = y[i]
-            window = vvv[i].astype(exp.dtype)
-            window[np.isnan(window)] = 0
-            window[(ww-pw):(ww+pw+1), (ww-pw):(ww+pw+1)] = 0
-
-            nonzero = window.nonzero()[0]
-            if nonzero.size / window.size < 0.08:
-                continue
-
-            E_ = local_background(window, exp, xi, yi, ww)
-            if not weights is None:
-                evalue = E_ / (weights[xi] * weights[yi])
-            else:
-                evalue = E_
-            
-            Poiss = stats.poisson(evalue)
-            pvalue = Poiss.sf(M[xi, yi])
-            if pvalue < thre:
-                x_filtered.append(xi)
-                y_filtered.append(yi)
-    
-    x_filtered = np.r_[x_filtered]
-    y_filtered = np.r_[y_filtered]
-    
-    return x_filtered, y_filtered
-
-def filter_intra_cluster_points(M, nM, weights, exp, x, y, pw=1, min_points=10):
-    
-    dis = []
-    expanded_coords = set()
-    for xi, yi in zip(x, y):
-        for i in range(-pw, pw+1):
-            for j in range(-pw, pw+1):
-                if (xi+i > 0) and (xi+i < M.shape[0]) and (yi+j > 0) and (yi+j < M.shape[1]):
-                    expanded_coords.add((xi+i, yi+j))
-                    d = (yi+j) - (xi+i)
-                    dis.append(d)
-
-    coords = set()
-    for xi, yi in expanded_coords:
-        v = nM[xi, yi]
-        if np.isnan(v):
-            continue
-        if v == 0:
-            continue
-        coords.add((xi, yi))
-    
-    # correct the peak width for narrow clusters
-    if (x.max() - x.min() < (2*pw+1)) or (y.max() - y.min() < (2*pw+1)):
-        pw = 0
-
-    # calculate the p-values
-    maxdis = max(dis)
-    mindis = min(dis)
-    singletons = set()
-    filtered_table = []
-    for xi, yi in zip(x, y):
-        peaks = set()
-        for i in range(-pw, pw+1):
-            for j in range(-pw, pw+1):
-                peaks.add((xi+i, yi+j))
-        
-        bg_coords = coords - peaks
-        if len(bg_coords) >= min_points:
-            x, y = np.r_[list(bg_coords)].T
-            if maxdis >= exp.size:
-                E_ = nM[x, y].mean()
-            else:
-                Ed = exp[y-x]
-                E_ = nM[x, y].sum() / Ed.sum() * exp[yi-xi]
-
-            if not weights is None:
-                evalue = E_ / (weights[xi] * weights[yi])
-            else:
-                evalue = E_
-    
-            Poiss = stats.poisson(evalue)
-            pvalue = Poiss.sf(M[xi, yi])
-            filtered_table.append((pvalue, xi, yi))
-        else:
-            singletons.add((xi, yi))
-    
-    short_range = True
-    if mindis > exp.size:
-        short_range = False
-
-    return filtered_table, singletons, short_range
-
-def select_intra_core(clr, c, balance, Ed, k=100, q_thre=0.01, minv=1, min_cluster_size=4,
-                      min_samples=4, max_cluster_size=250, decay_rate=0.8, niter=3, buff=2,
-                      highres=False):
-
-    M = clr.matrix(balance=False, sparse=True).fetch(c).tocsr()
-    x, y = M.nonzero()
-    v = M.data
-    # check for long-range contacts
-    dis = y - x
-    if highres:
-        mask = (dis >= k) & (dis <= Ed.size//4) & (v > minv)
-    else:
-        mask = (dis >= k) & (v > minv)
-        
-    x, y, v = x[mask], y[mask], v[mask]
-    evalue = Ed[k]
-    if balance:
-        nM = clr.matrix(balance=balance, sparse=True).fetch(c).tocsr()
-        weights = clr.bins().fetch(c)[balance].values
-        b1 = weights[x]
-        b2 = weights[y]
-        evalue = evalue / (b1 * b2)
-        mask = np.isfinite(evalue)
-        evalue = evalue[mask]
-        x = x[mask]
-        y = y[mask]
-        v = v[mask]
-        if evalue.size > 0:
-            Poiss = stats.poisson(evalue)
-            pvalues = Poiss.sf(v)
-        else:
-            pvalues = np.array([], dtype=float)
-    else:
-        nM = M
-        weights = None
-        Poiss = stats.poisson(evalue)
-        pvalues = Poiss.sf(v)
-
-    # check for short-range contacts
-    idx = np.arange(M.shape[0])
-    for i in range(10, k):
-        diag = M.diagonal(i)
-        xi = idx[:-i][diag>minv]
-        yi = idx[i:][diag>minv]
-        diag = diag[diag>minv]
-        if diag.size > 0:
-            if not balance:
-                x = np.r_[x, xi]
-                y = np.r_[y, yi]
-                Poiss = stats.poisson(Ed[i])
-                pvalues = np.r_[pvalues, Poiss.sf(diag)]
-            else:
-                b1 = weights[xi]
-                b2 = weights[yi]
-                evalue = Ed[i] / (b1 * b2)
-                mask = np.isfinite(evalue)
-                evalue = evalue[mask]
-                xi = xi[mask]
-                yi = yi[mask]
-                diag = diag[mask]
-                if diag.size > 0:
-                    x = np.r_[x, xi]
-                    y = np.r_[y, yi]
-                    Poiss = stats.poisson(evalue)
-                    pvalues = np.r_[pvalues, Poiss.sf(diag)]
-
-    qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
-    mask = qvalues < q_thre
-    x, y = x[mask], y[mask]
-
-    candi = set()
-    cutoff = 0.05 # hard-coded param
-    buf = buff - 1
-    if (min_cluster_size > 0) and (min_samples > 0) and (x.size > min_samples):
-        singletons = set()
-        # iterative clustering
-        coords = np.r_['1,2,0', x, y]
-        values = np.array(nM[x, y]).ravel()
-        exp = np.zeros(values.size)
-        dis = y - x
-        exp[dis>=Ed.size] = Ed[-1]
-        exp[dis<Ed.size] = Ed[dis[dis<Ed.size]]
-        values = values / exp
-        x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
-                                               min_samples=min_samples, max_cluster_size=max_cluster_size,
-                                               cut_ratio=decay_rate, round=niter)
-        coords = np.r_[list(zip(x, y))]
-        for ci in set(clusterer.labels_):
-            mask = clusterer.labels_ == ci
-            x_, y_ = x[mask], y[mask]
-            if ci >= 0:
-                filtered_table, tmp, short_range = filter_intra_cluster_points(M, nM, weights, Ed, x_, y_)
-                singletons.update(tmp)
-                for pv, xi, yi in filtered_table:
-                    if pv < cutoff:
-                        if short_range:
-                            candi.add((xi, yi, buff))
-                        else:
-                            candi.add((xi, yi, buf))
-            else:
-                tmp = set(zip(x_, y_))
-                singletons.update(tmp)
-
-        if len(singletons) > 0:
-            x_, y_ = np.r_[list(singletons)].T
-            x_f, y_f = filter_intra_singletons(M, nM, weights, Ed, x_, y_, thre=cutoff)
-            for xi, yi in zip(x_f, y_f):
-                if yi - xi <= Ed.size:
-                    candi.add((xi, yi, buff))
-                else:
-                    candi.add((xi, yi, buf))
-    else:
-        for xi, yi in zip(x, y):
-            candi.add((xi, yi, buf))
-    
-    candi = apply_buff(candi)
-
-    return c, candi
-
-def select_intra_candidate(clr, chroms, balance, Ed, k=100, q_thre=0.01, minv=1,
-                           min_cluster_size=3, min_samples=3, max_cluster_size=250,
-                           decay_rate=0.8, niter=3, buff=2, nproc=4, highres=False):
-
-    queue = []
-    for c in chroms:
-        queue.append((clr, c, balance, Ed[c], k, q_thre, minv, min_cluster_size,
-                      min_samples, max_cluster_size, decay_rate, niter, buff,
-                      highres))
-    
-    results = Parallel(n_jobs=nproc)(delayed(select_intra_core)(*i) for i in queue)
-    bychrom = {}
-    for c, candi in results:
-        if len(candi):
-            bychrom[(c, c)] = candi
-    
-    return bychrom
-
-def generage_bin_edges(axis_size, w):
-
-    ws = 2 * w + 1
-    bin_edge = [0]
-    for i in range(axis_size//ws+1):
-        bin_start = bin_edge[-1]
-        bin_end = min(bin_start+ws, axis_size)
-        if bin_start < axis_size:
-            bin_edge.append(bin_end)
-        if bin_end >= axis_size:
-            break
-
-    return bin_edge
-
-def filter_candidates(candidate_pool):
-
-    candidates = candidate_pool[0]
-    for tmp in candidate_pool[1:]:
-        candidates = candidates & tmp
-    
-    return candidates
-
-def add_neighbor_candidates(candidates, M, buff=1):
-
-    new_candidates = candidates.copy()
-    for xi, yi in candidates:
-        ref = M[xi, yi]
-        for i in range(-buff, buff+1):
-            for j in range(-buff, buff+1):
-                x = xi + i
-                y = yi + j
-                if (0 < x < M.shape[0]) and (0 < y < M.shape[1]):
-                    if M[x, y] > ref:
-                        new_candidates.add((x, y))
-    
-    return new_candidates
-
-def remove_real_outliers(x, y, buff=1):
-
-    pool = set(zip(x, y))
-    filtered = set()
-    for xi, yi in pool:
-        for i in range(-buff, buff+1):
-            for j in range(-buff, buff+1):
-                if (i == 0) and (j == 0):
+                if not check_sparsity(patch):
                     continue
-                if (xi+i, yi+j) in pool:
-                    filtered.add((xi, yi))
-    
-    return filtered
 
-def filter_inter_singletons(M, nM, weights_1, weights_2, x, y, thre=0.02, ww=3, pw=1):
+                collect_items.append((patch, (res, chrom1, abs_i, chrom2, abs_j, score)))
+                patch_count += 1
 
-    mask = (x - ww >= 0) & (x + ww + 1 <= M.shape[0]) & \
-           (y - ww >= 0) & (y + ww + 1 <= M.shape[1])
-    x, y = x[mask], y[mask]
-    x_filtered = []
-    y_filtered = []
-    if x.size > 0:
-        seed = np.arange(-ww, ww+1)
-        delta = np.tile(seed, (seed.size, 1))
-        xxx = x.reshape((x.size, 1, 1)) + delta.T
-        yyy = y.reshape((y.size, 1, 1)) + delta
-        v = np.array(nM[xxx.ravel(), yyy.ravel()]).ravel()
-        vvv = v.reshape((x.size, seed.size, seed.size))
-        for i in range(x.size):
-            xi = x[i]
-            yi = y[i]
-            window = vvv[i]
-            window[np.isnan(window)] = 0
-            window[(ww-pw):(ww+pw+1), (ww-pw):(ww+pw+1)] = 0
+                if len(collect_items) >= chunk_size:
+                    outfil = os.path.join(out_dir, 'collect_items.{0}.pkl'.format(patch_count))
+                    joblib.dump(collect_items, outfil, compress=('xz', 3))
+                    collect_items = []
 
-            nonzero = window.nonzero()
-            if nonzero[0].size / window.size < 0.08:
-                continue
+    if len(collect_items) > 0:
+        outfil = os.path.join(out_dir, 'collect_items.{0}.pkl'.format(patch_count))
+        joblib.dump(collect_items, outfil, compress=('xz', 3))
 
-            E_ = window[nonzero].mean()
-            if not weights_1 is None:
-                evalue = E_ / (weights_1[xi] * weights_2[yi])
-            else:
-                evalue = E_
-            
-            Poiss = stats.poisson(evalue)
-            pvalue = Poiss.sf(M[xi, yi])
-            if pvalue < thre:
-                x_filtered.append(xi)
-                y_filtered.append(yi)
-    
-    x_filtered = np.r_[x_filtered]
-    y_filtered = np.r_[y_filtered]
-    
-    return x_filtered, y_filtered
-
-def filter_inter_cluster_points(M, nM, weights_1, weights_2, x, y, pw=1, min_points=10):
-
-    coords = set()
-    for xi, yi in zip(x, y):
-        for i in range(-pw, pw+1):
-            for j in range(-pw, pw+1):
-                if (xi+i > 0) and (xi+i < M.shape[0]) and (yi+j > 0) and (yi+j < M.shape[1]):
-                    v = nM[xi+i, yi+j]
-                    if np.isnan(v):
-                        continue
-                    if v == 0:
-                        continue
-                    coords.add((xi+i, yi+j))
-    
-    # correct the peak width for narrow clusters
-    if (x.max() - x.min() < (2*pw+1)) or (y.max() - y.min() < (2*pw+1)):
-        pw = 0
-
-    # calculate the p-values
-    singletons = set()
-    results = []
-    for xi, yi in zip(x, y):
-        peaks = set()
-        for i in range(-pw, pw+1):
-            for j in range(-pw, pw+1):
-                peaks.add((xi+i, yi+j))
-        
-        bg_coords = coords - peaks
-        if len(bg_coords) >= min_points:
-            x, y = np.r_[list(bg_coords)].T
-            E_ = nM[x, y].mean()
-
-            if not weights_1 is None:
-                evalue = E_ / (weights_1[xi] * weights_2[yi])
-            else:
-                evalue = E_
-    
-            Poiss = stats.poisson(evalue)
-            pvalue = Poiss.sf(M[xi, yi])
-            results.append((pvalue, xi, yi))
-        else:
-            singletons.add((xi, yi))
-    
-    return results, singletons
-
-def filter_inter_total(M, nM, weights_1, weights_2, x, y):
-
-    results = []
-    # avoid estimating the expected value using too many points
-    if not weights_1 is None:
-        narr = np.array(nM[x, y]).ravel()
-        mask = np.isfinite(narr)
-        if mask.sum() == 0:
-            return results
-        narr, x, y = narr[mask], x[mask], y[mask]
-        varr = np.array(M[x, y]).ravel()
-    else:
-        narr = np.array(nM[x, y]).ravel()
-        varr = narr
-    
-    avg = narr.mean()
-    
-    # calculate the p-values
-    if not weights_1 is None:
-        evalues = avg / (weights_1[x] * weights_2[y])
-    else:
-        evalues = avg
-    
-    Poiss = stats.poisson(evalues)
-    pvalues = Poiss.sf(varr)
-    results = list(zip(pvalues, x, y))
-    
-    return results
-    
-def select_inter_core(clr, c1, c2, balance, windows, min_per, q_thre=0.01,
-                      min_cluster_size=4, min_samples=4, max_cluster_size=100,
-                      decay_rate=0.6, niter=3, buff=1):
-
-    M = clr.matrix(balance=False, sparse=True).fetch(c1, c2).tocsr()
-    x, y = M.nonzero()
-    v = M.data
-    
-    candidates_pool = []
-    # all contacts are treated as a single background
-    for w in windows:
-        x_edge = generage_bin_edges(M.shape[0], w)
-        y_edge = generage_bin_edges(M.shape[1], w)
-        sum_v, x_edge, y_edge, bin_indices = stats.binned_statistic_2d(
-            x, y, v, statistic='sum', bins=(x_edge, y_edge), expand_binnumbers=True
-        )
-
-        l_v = np.percentile(sum_v[sum_v>0], min_per)
-        mask = sum_v > l_v
-        if mask.sum() > 100:
-            evalue = sum_v[mask].mean()
-        else:
-            evalue = sum_v[sum_v>0].mean()
-
-        Poiss = stats.poisson(evalue)
-        pvalues = Poiss.sf(sum_v)
-        qvalues = multipletests(pvalues.ravel(), method='fdr_bh')[1]
-        qvalues = qvalues.reshape(pvalues.shape)
-        boolM = qvalues < q_thre
-
-        bin_indices = bin_indices - 1
-        bool_arr = boolM[bin_indices[0], bin_indices[1]]
-        xs, ys = x[bool_arr], y[bool_arr]
-        coords = set(zip(xs, ys))
-
-        candidates_pool.append(coords)
-    
-    candidates_pool = filter_candidates(candidates_pool)
-    candidates_pool = add_neighbor_candidates(candidates_pool, M)
-
-    if balance:
-        nM = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
-        weights_1 = clr.bins().fetch(c1)[balance].values
-        weights_2 = clr.bins().fetch(c2)[balance].values
-    else:
-        nM = M
-        weights_1 = None
-        weights_2 = None
-
-    candi = set()
-    cutoff = 0.05
-    if (min_cluster_size > 0) and (min_samples > 0) and (len(candidates_pool) > min_samples):
-        coords = np.r_[list(candidates_pool)]
-        x, y = coords.T
-        table = filter_inter_total(M, nM, weights_1, weights_2, x, y)
-        x = []
-        y = []
-        for pv, xi, yi in table:
-            if pv < q_thre:
-                x.append(xi)
-                y.append(yi)
-        
-        if len(x) > min_samples:
-            singletons = set()
-            x = np.r_[x]
-            y = np.r_[y]
-            coords = np.r_[list(zip(x, y))]
-            values = np.array(nM[x, y]).ravel()
-            # first round of clustering
-            x, y, clusterer = iterative_clustering(coords, values, min_cluster_size=min_cluster_size,
-                                                min_samples=min_samples, max_cluster_size=max_cluster_size,
-                                                cut_ratio=decay_rate, round=niter)
-            coords = np.r_[list(zip(x, y))]
-            for ci in set(clusterer.labels_):
-                mask = clusterer.labels_ == ci
-                x_, y_ = x[mask], y[mask]
-                if ci >= 0:
-                    table, tmp= filter_inter_cluster_points(M, nM, weights_1, weights_2, x_, y_)
-                    singletons.update(tmp)
-                    for pv, xi, yi in table:
-                        if pv < cutoff:
-                            candi.add((xi, yi, buff))
-                else:
-                    tmp = set(zip(x_, y_))
-                    singletons.update(tmp)
-
-            if len(singletons) > 0:
-                x_, y_ = np.r_[list(singletons)].T
-                x_f, y_f = filter_inter_singletons(M, nM, weights_1, weights_2, x_, y_,
-                                                   thre=cutoff)
-                for xi, yi in zip(x_f, y_f):
-                    candi.add((xi, yi, buff))
-        else:
-            for xi, yi in candidates_pool:
-                candi.add((xi, yi, buff))
-    else:
-        for xi, yi in candidates_pool:
-            candi.add((xi, yi, buff))
-    
-    candi = apply_buff(candi)
-    
-    return c1, c2, candi
-
-def select_inter_candidate(clr, chroms, balance, windows=[3,5], min_per=50,
-                           q_thre=0.01, min_cluster_size=4, min_samples=4,
-                           max_cluster_size=100, decay_rate=0.6, niter=3, buff=1,
-                           nproc=4):
-    
-    queue = []
-    for i in range(len(chroms)-1):
-        for j in range(i+1, len(chroms)):
-            queue.append((clr, chroms[i], chroms[j], balance, windows, min_per,
-                          q_thre, min_cluster_size, min_samples, max_cluster_size,
-                          decay_rate, niter, buff))
-    
-    results = Parallel(n_jobs=nproc)(delayed(select_inter_core)(*i) for i in queue)
-    bychrom = {}
-    for c1, c2, candi in results:
-        if len(candi):
-            bychrom[(c1, c2)] = candi
-    
-    return bychrom
-
-def cross_resolution_filter(byres, byres_bad, min_dis=50):
-
-    new = {}
-    for tr in byres:
-        new[tr] = defaultdict(set)
-        for c in byres[tr]:
-            for tx, ty in byres[tr][c]:
-                if (c[0] == c[1]) and (ty - tx < min_dis):
-                    new[tr][c].add((tx, ty))
-                else:
-                    valid = True
-                    for qr in byres_bad:
-                        if (qr > tr) and (c in byres_bad[qr]):
-                            s_l = range(tx*tr//qr, int(np.ceil((tx+1)*tr/qr)))
-                            e_l = range(ty*tr//qr, int(np.ceil((ty+1)*tr/qr)))
-                            for qx in s_l:
-                                for qy in e_l:
-                                    if (c[0] == c[1]) and (qy - qx < min_dis):
-                                        continue
-                                    if (qx, qy) in byres_bad[qr][c]:
-                                        valid = False
-                                        break
-                    
-                    if valid:
-                        new[tr][c].add((tx, ty))
-    
-    return new
+    return patch_count

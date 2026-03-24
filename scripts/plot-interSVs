@@ -15,20 +15,19 @@ def getargs():
                         version=' '.join(['%(prog)s',currentVersion]),
                         help='Print version number and exit.')
 
-    parser.add_argument('--cool-uri', help='''Cool URI.''')
-    parser.add_argument('--sv-file', help='''Path to the a file outputted by the predictSV command.
-                        This file should includes 13 columns for each SV, including breakpoint coordinates,
-                        probability values for each fusion type (++, +-, -+, --, ++/--, and +-/-+), the
-                        resolution of the contact matrix from which the SV is originally predicted, the
-                        finest resolution where the SV can be mapped, the number of bad bins near the SV
-                        breakpoints.''')
+    parser.add_argument('--cool-uri', required=True, help='''Cool URI.''')
+    parser.add_argument('--sv-file', required=True, help='''Path to a file outputted by the predictSV command.
+                        The file contains 13 columns: chrom1, pos1, chrom2, pos2, probabilities for ++, +-, -+,
+                        --, ++/--, and +-/-+, original resolution, fine-mapped resolution, and an info field.
+                        The info field encodes gap counts, chromosome-boundary flags, and original/refined support
+                        scores.''')
+    parser.add_argument('-O', '--output-figure-name', required=True, help='''Output figure name.''')
+    parser.add_argument('-C', '--chroms', nargs = '+', required=True,
+                        help = 'List of chromosome labels to plot.')
     parser.add_argument('-p', '--prob-cutoff', default=0.5, type=float,
                         help='''Only inter-chromosomal SVs with probability greater than
                         this value will be plotted.''')
-    parser.add_argument('-O', '--output-figure-name', help='''Output figure name.''')
-    parser.add_argument('-C', '--chroms', nargs = '+',
-                        help = 'List of chromosome labels to plot.')
-    parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'Raw'])
+    parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'Raw', 'CNV'])
     parser.add_argument('--contact-max-value', type=float)
     parser.add_argument('--marker-size', default=20, type=int)
     parser.add_argument('--dpi', default=800, type=int)
@@ -52,6 +51,8 @@ def run():
 
         if args.balance_type == 'Raw':
             correct = False
+        elif args.balance_type == 'CNV':
+            correct = 'sweight'
         else:
             correct = 'weight'
 

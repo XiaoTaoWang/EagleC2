@@ -8,7 +8,7 @@ currentVersion = eaglec.__version__
 def getargs():
     """Parse command-line arguments using argparse."""
     parser = argparse.ArgumentParser(
-        description="Evaluates a predefined list of SVs using EagleC2 models.",
+        description='''Evaluate a predefined list of structural variants (SVs) using EagleC2 stage-2 models.''',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
@@ -17,21 +17,24 @@ def getargs():
                         version=' '.join(['%(prog)s',currentVersion]),
                         help='Print version number and exit.')
     
-    parser.add_argument('-i', '--sv-file',
-                        help="Path to a .txt file containing SV breakpoint coordinates for evaluation. ")
-    parser.add_argument('-m', '--mcool',
-                        help="Path to a mcool file containing contact matrices at multiple resolutions.")
-    parser.add_argument('-O', '--output-prefix', help='''Prefix of the output file names''')
+    parser.add_argument('-i', '--sv-file', required=True,
+                        help='''Path to a text file containing SV breakpoint coordinates to evaluate.
+                        Expected columns: chrom1 pos1 chrom2 pos2.''')
+    parser.add_argument('-m', '--mcool', required=True,
+                        help='''Path to an input .mcool file containing Hi-C contact matrices at multiple
+                        resolutions.''')
+    parser.add_argument('-O', '--output-prefix', required=True, help='''Prefix for output files''')
     parser.add_argument('--model-path', default='EagleC2-models',
-                        help="Path to the folder containing pretrained models.")
+                        help="Path to the folder containing pretrained EagleC2 stage-2 ensemble models.")
 
     # --- Analysis Arguments ---
     parser.add_argument('--resolutions', default='5000,10000,25000',
-                        help="Resolutions at which the contact matrices will be used for SV evaluation.")
+                        help="Comma-separated list of resolutions used for SV evaluation.")
     parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'CNV', 'Raw'],
-                        help = "Normalization method.")
+                        help = '''Normalization method used when reading Hi-C matrices: ICE -> "weight",
+                        CNV -> "sweight", Raw -> unbalanced counts.''')
     parser.add_argument('--search-buffer', type=int, default=3,
-                        help="Buffer size (in bins) around each SV breakpoint pair used during the search.")
+                        help="Search radius in bins around each queried breakpoint pair at each resolution.")
 
     # --- Performance Arguments ---
     parser.add_argument('-p', '--nproc', type=int, default=8,
@@ -57,9 +60,9 @@ def main():
         import joblib
         import numpy as np
         from collections import defaultdict
-        from eaglec.utilities import calculate_expected
+        from eaglec.utilities import calculate_expected, get_queue
         from eaglec.extractMatrix import collect_images
-        from eaglec.predictCore import load_models, get_queue, convert2TF
+        from eaglec.predictCore import load_ensemble_models, predict_with_ensemble_models
 
         def evaluate(cache_folder, models, batch_size=256):
 
@@ -68,10 +71,8 @@ def main():
             SV_labels = ['++', '+-', '-+', '--', '++/--', '+-/-+']
             for data in queue:
                 images = np.r_[[d[0] for d in data]]
-                images = convert2TF(images, batch_size)
                 coords = [d[1] for d in data]
-                prob_pool = np.stack([model.predict(images) for model in models])
-                prob_mean = prob_pool.mean(axis=0)[:,:6]
+                prob_mean = predict_with_ensemble_models(images, models, batch_size)
                 for i in range(prob_mean.shape[0]):
                     c1, p1, c2, p2, res = coords[i]
                     prob = prob_mean[i]
@@ -91,9 +92,11 @@ def main():
                 for line in source:
                     c1, p1, c2, p2 = line.rstrip().split()[:4]
                     p1, p2 = int(p1), int(p2)
-                    if c1 > c2:
+
+                    if (c1 > c2) or (c1 == c2 and p1 > p2):
                         c1, c2 = c2, c1
                         p1, p2 = p2, p1
+
                     key = (c1, c2)
                     if not key in coords:
                         coords[key] = []
@@ -160,12 +163,14 @@ def main():
 
         tl = time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
         cache_folder = tempfile.mkdtemp(**{'suffix':tl, 'dir':cache_root})
+
+        logger.info('Cache folder: {0}'.format(cache_folder))
         
         # expected values
         expected_values = {}
         logger.info('Calculating the expected values ...')
         for res in resolutions:
-            logger.info('Resolution {0}'.format(res))
+            logger.info('  Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
@@ -173,7 +178,7 @@ def main():
 
         # read candidates at each resolution
         sv_bychrom = parse_SVs(args.sv_file)
-        logging.info(f"Found {sum(len(sv_bychrom[c]) for c in sv_bychrom)} SVs to evaluate")
+        logger.info(f"Found {sum(len(sv_bychrom[c]) for c in sv_bychrom)} SVs to evaluate")
         by_res = defaultdict(dict)
         for res in resolutions:
             for c1, c2 in sv_bychrom:
@@ -196,10 +201,10 @@ def main():
         # collect images
         total_n = collect_images(args.mcool, by_res, expected_values, balance, cache_folder,
                                  w=15, entropy_cutoff=1, nproc=args.nproc)
-        logging.info(f"Totally collected {total_n} images for evaluation.")
+        logger.info(f"Totally collected {total_n} images for evaluation.")
         # load models
         logger.info(f"Loading pre-trained models from: {args.model_path}")
-        models = load_models(args.model_path)
+        models = load_ensemble_models(args.model_path)
 
         # model evaluation
         original_predictions = evaluate(cache_folder, models, batch_size=args.batch_size)
