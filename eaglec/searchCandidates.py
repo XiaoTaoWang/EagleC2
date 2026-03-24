@@ -7,7 +7,6 @@ from collections import defaultdict
 from eaglec.utilities import image_normalize
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 @tf.function(reduce_retracing=True)
 def local_minmax_normalize_2d(x2d, k=21, eps=1e-6):
@@ -136,7 +135,7 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_values,
         candidates[res] = defaultdict(list)
         # cis
         for chrom in chroms:
-            log.debug('  Scanning {0} at resolution {1} ...'.format(chrom, res))
+            log.info('  Scanning {0} at resolution {1} ...'.format(chrom, res))
             M = clr.matrix(balance=balance, sparse=True).fetch(chrom).tocsr()
             for r0, r1, c0, c1, core_norm in iter_csr_tiles(
                 M,
@@ -159,7 +158,7 @@ def iter_cooler_scan_candidates(cool_path, resolutions, chroms, expected_values,
         for i in range(len(chroms)-1):
             for j in range(i+1, len(chroms)):
                 chrom1, chrom2 = chroms[i], chroms[j]
-                log.debug('  Scanning {0} vs {1} at resolution {2} ...'.format(chrom1, chrom2, res))
+                log.info('  Scanning {0} vs {1} at resolution {2} ...'.format(chrom1, chrom2, res))
                 M = clr.matrix(balance=balance, sparse=True).fetch(chrom1, chrom2).tocsr()
                 for r0, r1, c0, c1, core_norm in iter_csr_tiles(
                     M,

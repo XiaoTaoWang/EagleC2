@@ -10,7 +10,7 @@ def getargs():
     
     parser = argparse.ArgumentParser(
         description='''Filter EagleC2 SV calls using probability, FCN score, refinement score,
-        gap status, and chromosome-boundary status.''',
+        gap status, chromosome-boundary status, and refined resolution.''',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
 
@@ -31,11 +31,15 @@ def getargs():
     parser.add_argument('--fcn-cutoff', type=float, default=0.0,
                         help='Minimum FCN scanning score.')
     parser.add_argument('--refine-cutoff', type=float, default=0.0,
-                        help='Minimum refinement score.')
+                        help='''Minimum refinement score. If refinement score is missing, this filter
+                        is skipped for that SV.''')
     parser.add_argument('--max-gap', type=int, default=2,
                         help='Maximum allowed gap_x + gap_y.')
     parser.add_argument('--keep-boundary-svs', action='store_true',
                         help='Keep SVs near chromosome boundaries.')
+    parser.add_argument('--min-refine-resolution', type=int,
+                        help='''Keep only SVs whose fine-mapped resolution is this value or finer
+                        (smaller bin size).''')
 
     ## Parse the command-line arguments
     commands = sys.argv[1:]
@@ -54,8 +58,6 @@ def parse_prob_cutoffs(cutoff_str):
             cutoffs[int(res)] = float(val)
 
     return cutoffs
-
-
 
 def parse_eaglec2_file(filepath):
 
@@ -95,9 +97,16 @@ def parse_eaglec2_file(filepath):
                 bx = int(tokens[2])
                 by = int(tokens[3])
                 fcn_score = float(tokens[4])
-                refine_score = float(tokens[5])
             except ValueError:
                 continue
+
+            # refinement score can be missing / invalid
+            refine_score = None
+            if tokens[5] != '':
+                try:
+                    refine_score = float(tokens[5])
+                except ValueError:
+                    refine_score = None
 
             key = (c1, c2, p1, p2, res_origin, res_finemapped)
 
@@ -140,9 +149,14 @@ def keep_sv(data, args, prob_cutoffs):
     if data['fcn_score'] < args.fcn_cutoff:
         return False
 
-    # refinement score
-    if data['refine_score'] < args.refine_cutoff:
+    # refinement score: only filter if valid
+    if (data['refine_score'] is not None) and (data['refine_score'] < args.refine_cutoff):
         return False
+    
+    # minimum refined resolution: smaller = finer
+    if args.min_refine_resolution is not None:
+        if data['res_finemapped'] > args.min_refine_resolution:
+            return False
 
     return True
 

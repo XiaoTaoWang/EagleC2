@@ -80,7 +80,7 @@ def run():
         filehandler = logging.FileHandler(logfil)
         # Set level for Handlers
         console.setLevel(logging.INFO)
-        filehandler.setLevel(logging.DEBUG)
+        filehandler.setLevel(logging.INFO)
         # Customizing Formatter
         formatter = logging.Formatter(fmt = '%(name)-25s %(levelname)-7s @ %(asctime)s: %(message)s',
                                       datefmt = '%m/%d/%y %H:%M:%S')
