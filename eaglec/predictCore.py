@@ -400,6 +400,6 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
         sv_list.extend(L)
     
     SVs = cluster_SVs(sv_list, r=2*res_ref[-1])
-    SVs = check_gaps_and_bounds(SVs, ref_gaps)
+    #SVs = check_gaps_and_bounds(SVs, ref_gaps)
 
     return SVs

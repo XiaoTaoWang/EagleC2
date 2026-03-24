@@ -26,9 +26,10 @@ def getargs():
     parser.add_argument('--mcool', required=True, help='''Path to an input .mcool file containing Hi-C contact
                         matrices at multiple resolutions.''')
     parser.add_argument('-O', '--output-prefix', required=True, help='''Prefix of the output file names''')
-    parser.add_argument('--resolutions', default='5000,10000,25000',
-                        help='''Comma-separated list of resolutions used for stage-1 scanning, stage-2 prediction,
-                        and fine-mapping.''')
+    parser.add_argument('--scan-resolutions', default='5000,10000,25000',
+                        help='Comma-separated resolutions for FCN scanning and SV prediction.')
+    parser.add_argument('--refine-resolutions', default='1000,2000,5000,10000,25000',
+                        help='Comma-separated resolutions for SV refinement (must include scan resolutions).')
     parser.add_argument('--balance-type', default='ICE', choices=['ICE', 'CNV', 'Raw'],
                         help = '''Normalization method used when reading Hi-C matrices: ICE -> "weight",
                         CNV -> "sweight", Raw -> unbalanced counts.''')
@@ -62,6 +63,8 @@ def getargs():
     
     return args, commands
 
+def parse_resolutions(res_str):
+    return sorted([int(r) for r in res_str.split(',')])
 
 def run():
 
@@ -71,13 +74,13 @@ def run():
     if commands[0] not in ['-h', '-v', '--help', '--version']:
         ## Root Logger Configuration
         logger = logging.getLogger()
-        logger.setLevel(10)
+        logger.setLevel(logging.DEBUG)
         console = logging.StreamHandler()
         logfil = '{0}.log'.format(args.output_prefix)
         filehandler = logging.FileHandler(logfil)
         # Set level for Handlers
-        console.setLevel('INFO')
-        filehandler.setLevel('INFO')
+        console.setLevel(logging.INFO)
+        filehandler.setLevel(logging.DEBUG)
         # Customizing Formatter
         formatter = logging.Formatter(fmt = '%(name)-25s %(levelname)-7s @ %(asctime)s: %(message)s',
                                       datefmt = '%m/%d/%y %H:%M:%S')
@@ -93,7 +96,8 @@ def run():
         arglist = [
             '# ARGUMENT LIST:',
             '# Path to mcool = {0}'.format(args.mcool),
-            '# Resolutions = {0}'.format(args.resolutions),
+            '# Scan Resolutions = {0}'.format(args.scan_resolutions),
+            '# Refine Resolutions = {0}'.format(args.refine_resolutions),
             '# Balance Type = {0}'.format(args.balance_type),
             '# Path to stage-2 models = {0}'.format(args.model_path),
             '# Reference Genome = {0}'.format(args.genome),
@@ -122,8 +126,13 @@ def run():
         from eaglec.predictCore import load_ensemble_models, load_fcn_model, predict, refine_predictions
 
         # read resolutions
-        resolutions = [int(r) for r in args.resolutions.split(',')]
-        clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, resolutions[0]))
+        scan_resolutions = parse_resolutions(args.scan_resolutions)
+        refine_resolutions = parse_resolutions(args.refine_resolutions)
+        
+        if not set(scan_resolutions).issubset(set(refine_resolutions)):
+            raise ValueError('scan_resolutions must be a subset of refine_resolutions.')
+
+        clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, scan_resolutions[0]))
         # read chromosomes
         chroms = []
         for c in clr.chromnames:
@@ -152,7 +161,7 @@ def run():
         # expected values
         expected_values = {}
         logger.info('Calculating the expected values ...')
-        for res in resolutions:
+        for res in refine_resolutions:
             logger.info('  Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
@@ -165,7 +174,7 @@ def run():
         fcn_model = load_fcn_model()
         candidates, count = iter_cooler_scan_candidates(
             cool_path=args.mcool,
-            resolutions=resolutions,
+            resolutions=scan_resolutions,
             chroms=chroms,
             expected_values=expected_values,
             balance=balance,
@@ -190,7 +199,7 @@ def run():
         logger.info('Done')
         # load gap regions
         gaps = {}
-        for res in resolutions:
+        for res in refine_resolutions:
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             gaps[res] = load_gap(clr, chroms, ref_genome=args.genome, balance=balance)
 
@@ -207,7 +216,7 @@ def run():
         logger.info('Refining SV coordinates ...')
         SVs = refine_predictions(
             original_predictions,
-            resolutions,
+            refine_resolutions,
             models,
             args.mcool,
             balance,
