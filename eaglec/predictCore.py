@@ -6,6 +6,16 @@ from sklearn.cluster import dbscan
 from eaglec.utilities import distance_normaize_core, image_normalize, \
     get_queue, dict2list, list2dict
 
+# load models that directly output probabilities
+def load_models(root_folder):
+
+    model_paths = glob.glob(os.path.join(root_folder, '*.keras'))
+    models = []
+    for f in model_paths:
+        models.append(tf.keras.models.load_model(f))
+    
+    return models
+
 def load_fcn_model():
 
     folder = os.path.join(os.path.split(eaglec.__file__)[0], 'data')
@@ -92,6 +102,10 @@ def predict(cache_folder, models, ref_gaps, prob_cutoff=0.2, batch_size=256):
         images = np.r_[[d[0] for d in data]]
         info = [d[1] for d in data]
         prob_mean = predict_with_ensemble_models(images, models, batch_size)
+        #images = convert2TF(images, batch_size)
+        #prob_pool = np.stack([model.predict(images) for model in models])
+        #prob_mean = prob_pool.mean(axis=0)[:,:6]
+        
         for i in range(prob_mean.shape[0]):
             res, c1, p1, c2, p2, fcn_score = info[i]
             prob = prob_mean[i]
@@ -327,12 +341,12 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
                             continue
                         M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
                         M[np.isnan(M)] = 0
+                        M = M.astype(exp[qr][c1].dtype)
 
                         if M.max() == M.min():
                             continue
 
                         if c1 == c2:
-                            M = M.astype(exp[qr][c1].dtype)
                             M = distance_normaize_core(M, exp[qr][c1], x, y, w)
                         
                         M = image_normalize(M)
