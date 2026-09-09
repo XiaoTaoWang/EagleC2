@@ -56,9 +56,7 @@ def distance_normalize_block(block_dense, exp, R0, C0):
 
     D = np.abs(rows - cols).astype(np.int32)     # (h,w)
 
-    # if any distance in this block exceeds exp length, skip distance normalization
-    if D.max() >= exp.size:
-        return block_dense
+    D = np.minimum(D, exp.size - 1)
 
     denom = exp[D]  # (h,w)
     out = np.divide(block_dense, denom, out=block_dense.copy(),
