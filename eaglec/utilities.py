@@ -200,27 +200,22 @@ def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
 
 @njit
 def distance_normaize_core(sub, exp, x, y, w):
-
-    # calculate x and y indices
     x_arr = np.arange(x-w, x+w+1).reshape((2*w+1, 1))
     y_arr = np.arange(y-w, y+w+1)
-
-    D = y_arr - x_arr
-    D = np.abs(D)
+    
+    D = np.abs(y_arr - x_arr)
+    D = np.minimum(D, exp.size - 1)
+    
     min_dis = D.min()
     max_dis = D.max()
-    if max_dis >= exp.size:
-        return sub
-    else:
-        exp_sub = np.zeros(sub.shape)
-        for d in range(min_dis, max_dis+1):
-            xi, yi = np.where(D==d)
-            for i, j in zip(xi, yi):
-                exp_sub[i, j] = exp[d]
-            
-        normed = sub / exp_sub
-
-        return normed
+    
+    exp_sub = np.zeros(sub.shape)
+    for d in range(min_dis, max_dis+1):
+      xi, yi = np.where(D == d)
+      for i, j in zip(xi, yi):
+          exp_sub[i, j] = exp[d]
+    
+    return sub / exp_sub
     
 @njit
 def image_normalize(arr_2d):
