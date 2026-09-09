@@ -1,4 +1,4 @@
-#!/opt/conda/bin/python
+#!/usr/bin/env python
 
 ## Required modules
 import argparse, sys, logging, eaglec, os, time, tempfile
