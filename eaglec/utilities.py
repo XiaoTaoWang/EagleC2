@@ -82,14 +82,14 @@ def get_valid_cols(clr, c, balance):
         marg = np.array(M.sum(axis=0)).ravel()
         logNzMarg = np.log(marg[marg>0])
         med_logNzMarg = np.median(logNzMarg)
-        dev_logNzMarg = cooler.util.mad(logNzMarg)
+        dev_logNzMarg = cooler.balance.mad(logNzMarg)
         cutoff = np.exp(med_logNzMarg - 30 * dev_logNzMarg)
         marg[marg<cutoff] = 0
         valid_cols = marg > 0
     
     return valid_cols
 
-def calculate_expected_intra_core(clr, c, balance, max_dis):
+def calculate_expected_core(clr, c, balance, max_dis):
 
     M = clr.matrix(balance=balance, sparse=True).fetch(c).tocsr()
     valid_cols = get_valid_cols(clr, c, balance)
@@ -109,7 +109,7 @@ def calculate_expected_intra_core(clr, c, balance, max_dis):
     
     return c, expected
 
-def calculate_expected_intra(clr, chroms, balance, max_dis, nproc=4,
+def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
                        N=50, dynamic_window_size=2):
 
     res = clr.binsize
@@ -162,35 +162,6 @@ def calculate_expected_intra(clr, chroms, balance, max_dis, nproc=4,
         
     return exp_bychrom
 
-
-def calculate_expected_inter_core(clr, pair, balance):
-
-    c1, c2 = pair
-    M = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
-
-    data = M.data
-    data = data[np.isfinite(data)]
-
-    if data.size == 0:
-        expected = np.nan
-    else:
-        expected = data.mean()
-
-    return pair, expected
-
-def calculate_expected_inter(clr, chroms, balance, nproc=4):
-
-    queue = []
-    for i in range(len(chroms)):
-        for j in range(i + 1, len(chroms)):
-            pair = (chroms[i], chroms[j])
-            queue.append((clr, pair, balance))
-
-    results = Parallel(n_jobs=nproc)(delayed(calculate_expected_inter_core)(*i) for i in queue)
-    exp_bychrom = {pair: exp for pair, exp in results}
-        
-    return exp_bychrom
-
 def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
 
     gaps = {}
@@ -236,20 +207,20 @@ def distance_normaize_core(sub, exp, x, y, w):
 
     D = y_arr - x_arr
     D = np.abs(D)
-    D = np.minimum(D, exp.size - 1)
-
     min_dis = D.min()
     max_dis = D.max()
-    
-    exp_sub = np.zeros(sub.shape)
-    for d in range(min_dis, max_dis+1):
-        xi, yi = np.where(D==d)
-        for i, j in zip(xi, yi):
-            exp_sub[i, j] = exp[d]
-        
-    normed = sub / exp_sub
+    if max_dis >= exp.size:
+        return sub
+    else:
+        exp_sub = np.zeros(sub.shape)
+        for d in range(min_dis, max_dis+1):
+            xi, yi = np.where(D==d)
+            for i, j in zip(xi, yi):
+                exp_sub[i, j] = exp[d]
+            
+        normed = sub / exp_sub
 
-    return normed
+        return normed
     
 @njit
 def image_normalize(arr_2d):
