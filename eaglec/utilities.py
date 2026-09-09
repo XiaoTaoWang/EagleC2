@@ -82,7 +82,7 @@ def get_valid_cols(clr, c, balance):
         marg = np.array(M.sum(axis=0)).ravel()
         logNzMarg = np.log(marg[marg>0])
         med_logNzMarg = np.median(logNzMarg)
-        dev_logNzMarg = cooler.balance.mad(logNzMarg)
+        dev_logNzMarg = cooler.util.mad(logNzMarg)
         cutoff = np.exp(med_logNzMarg - 30 * dev_logNzMarg)
         marg[marg<cutoff] = 0
         valid_cols = marg > 0
