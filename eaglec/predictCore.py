@@ -9,7 +9,7 @@ from eaglec.utilities import distance_normaize_core, image_normalize, \
 def load_fcn_model():
 
     folder = os.path.join(os.path.split(eaglec.__file__)[0], 'data')
-    model_path = os.path.join(folder, 'FCN.best_model.cleaned.hard_neg11.keras')
+    model_path = os.path.join(folder, 'FCN.best_model.keras')
     wrapper = tf.keras.models.load_model(model_path)
     base_fcn = wrapper.get_layer("fcn21_base_7class")
 
