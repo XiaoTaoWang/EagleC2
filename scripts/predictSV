@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/opt/conda/bin/python
 
 # Created on Tue Sep 8 20:45:18 2020
 # Author: XiaoTao Wang
@@ -121,7 +121,7 @@ def run():
             #logger.info('Visible devices: {0}'.format(tf.config.get_visible_devices('GPU')))
 
         import cooler, time, tempfile, joblib
-        from eaglec.utilities import calculate_expected_intra, calculate_expected_inter, load_gap
+        from eaglec.utilities import calculate_expected, load_gap
         from eaglec.searchCandidates import collect_candidate_patches, iter_cooler_scan_candidates
         from eaglec.predictCore import load_ensemble_models, load_fcn_model, predict, refine_predictions
 
@@ -159,32 +159,28 @@ def run():
         logger.info('Cache folder: {0}'.format(cache_folder))
         
         # expected values
-        expected_values_intra = {}
-        expected_values_inter = {}
+        expected_values = {}
         logger.info('Calculating the expected values ...')
         for res in refine_resolutions:
             logger.info('  Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
-            expected_values_intra[res] = calculate_expected_intra(clr, chroms, balance, max_bins, nproc=args.nproc)
-            expected_values_inter[res] = calculate_expected_inter(clr, chroms, balance, nproc=args.nproc)
-        joblib.dump(expected_values_intra, os.path.join(cache_folder, 'expected_values_intra.pkl'))
-        joblib.dump(expected_values_inter, os.path.join(cache_folder, 'expected_values_inter.pkl'))
-
+            expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
+            
+        joblib.dump(expected_values, os.path.join(cache_folder, 'expected_values.pkl'))
         logger.info('Done')
 
         logger.info('Scanning genome using FCN ...')
         fcn_model = load_fcn_model()
         candidates, count = iter_cooler_scan_candidates(
-            cool_path=mcool_path,
+            cool_path=args.mcool,
             resolutions=scan_resolutions,
             chroms=chroms,
-            expected_intra=expected_values_intra,
-            expected_inter=expected_values_inter,
+            expected_values=expected_values,
             balance=balance,
             base_fcn=fcn_model,
-            tile_size=tile_size,
-            cutoff=candidate_cutoff
+            tile_size=args.tile_size,
+            cutoff=args.candidate_cutoff
         )
         logger.info('Totally detected {0} candidates'.format(count))
 
@@ -192,8 +188,7 @@ def run():
         patch_count = collect_candidate_patches(
             cool_path=args.mcool,
             candidates=candidates,
-            expected_intra=expected_values_intra,
-            expected_inter=expected_values_inter,
+            expected_values=expected_values,
             out_dir=cache_folder,
             balance=balance
         )
