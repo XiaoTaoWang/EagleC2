@@ -327,12 +327,12 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
                             continue
                         M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
                         M[np.isnan(M)] = 0
+                        M = M.astype(exp[qr][c1].dtype)
 
                         if M.max() == M.min():
                             continue
 
                         if c1 == c2:
-                            M = M.astype(exp[qr][c1].dtype)
                             M = distance_normaize_core(M, exp[qr][c1], x, y, w)
                         
                         M = image_normalize(M)
