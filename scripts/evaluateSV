@@ -60,7 +60,7 @@ def main():
         import joblib
         import numpy as np
         from collections import defaultdict
-        from eaglec.utilities import calculate_expected_intra, calculate_expected_inter, get_queue
+        from eaglec.utilities import calculate_expected, get_queue
         from eaglec.extractMatrix import collect_images
         from eaglec.predictCore import load_ensemble_models, predict_with_ensemble_models
 
@@ -167,17 +167,14 @@ def main():
         logger.info('Cache folder: {0}'.format(cache_folder))
         
         # expected values
-        expected_values_intra = {}
-        expected_values_inter = {}
+        expected_values = {}
         logger.info('Calculating the expected values ...')
         for res in resolutions:
             logger.info('  Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
-            expected_values_intra[res] = calculate_expected_intra(clr, chroms, balance, max_bins, nproc=args.nproc)
-            expected_values_inter[res] = calculate_expected_inter(clr, chroms, balance, nproc=args.nproc)
-        joblib.dump(expected_values_intra, os.path.join(cache_folder, 'expected_values_intra.pkl'))
-        joblib.dump(expected_values_inter, os.path.join(cache_folder, 'expected_values_inter.pkl'))
+            expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
+        joblib.dump(expected_values, os.path.join(cache_folder, 'expected_values.pkl'))
 
         # read candidates at each resolution
         sv_bychrom = parse_SVs(args.sv_file)
@@ -202,7 +199,7 @@ def main():
                             by_res[res][(c1, c2)].add((xi, yi))
         
         # collect images
-        total_n = collect_images(args.mcool, by_res, expected_values_intra, expected_values_inter, balance, cache_folder,
+        total_n = collect_images(args.mcool, by_res, expected_values, balance, cache_folder,
                                  w=15, nproc=args.nproc)
         logger.info(f"Totally collected {total_n} images for evaluation.")
         # load models

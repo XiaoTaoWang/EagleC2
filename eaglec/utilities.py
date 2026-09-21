@@ -89,7 +89,7 @@ def get_valid_cols(clr, c, balance):
     
     return valid_cols
 
-def calculate_expected_intra_core(clr, c, balance, max_dis):
+def calculate_expected_core(clr, c, balance, max_dis):
 
     M = clr.matrix(balance=balance, sparse=True).fetch(c).tocsr()
     valid_cols = get_valid_cols(clr, c, balance)
@@ -109,7 +109,7 @@ def calculate_expected_intra_core(clr, c, balance, max_dis):
     
     return c, expected
 
-def calculate_expected_intra(clr, chroms, balance, max_dis, nproc=4,
+def calculate_expected(clr, chroms, balance, max_dis, nproc=4,
                        N=50, dynamic_window_size=2):
 
     res = clr.binsize
@@ -123,7 +123,7 @@ def calculate_expected_intra(clr, chroms, balance, max_dis, nproc=4,
     diag_sums['genome'] = np.zeros(max_dis+1)
     pixel_nums['genome'] = np.zeros(max_dis+1)
 
-    results = Parallel(n_jobs=nproc)(delayed(calculate_expected_intra_core)(*i) for i in queue)
+    results = Parallel(n_jobs=nproc)(delayed(calculate_expected_core)(*i) for i in queue)
     for i in range(max_dis+1):
         nume = 0 # genome-wide aggregation
         denom = 0
@@ -159,35 +159,6 @@ def calculate_expected_intra(clr, chroms, balance, max_dis, nproc=4,
         IR.fit(sorted(Ed[c]), [Ed[c][i] for i in sorted(Ed[c])])
         d = np.arange(max_dis+1)
         exp_bychrom[c] = IR.predict(list(d))
-        
-    return exp_bychrom
-
-
-def calculate_expected_inter_core(clr, pair, balance):
-
-    c1, c2 = pair
-    M = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
-
-    data = M.data
-    data = data[np.isfinite(data)]
-
-    if data.size == 0:
-        expected = np.nan
-    else:
-        expected = data.mean()
-
-    return pair, expected
-
-def calculate_expected_inter(clr, chroms, balance, nproc=4):
-
-    queue = []
-    for i in range(len(chroms)):
-        for j in range(i + 1, len(chroms)):
-            pair = (chroms[i], chroms[j])
-            queue.append((clr, pair, balance))
-
-    results = Parallel(n_jobs=nproc)(delayed(calculate_expected_inter_core)(*i) for i in queue)
-    exp_bychrom = {pair: exp for pair, exp in results}
         
     return exp_bychrom
 
@@ -229,27 +200,22 @@ def load_gap(clr, chroms, ref_genome='hg38', balance='weight'):
 
 @njit
 def distance_normaize_core(sub, exp, x, y, w):
-
-    # calculate x and y indices
     x_arr = np.arange(x-w, x+w+1).reshape((2*w+1, 1))
     y_arr = np.arange(y-w, y+w+1)
-
-    D = y_arr - x_arr
-    D = np.abs(D)
+    
+    D = np.abs(y_arr - x_arr)
     D = np.minimum(D, exp.size - 1)
-
+    
     min_dis = D.min()
     max_dis = D.max()
     
     exp_sub = np.zeros(sub.shape)
     for d in range(min_dis, max_dis+1):
-        xi, yi = np.where(D==d)
-        for i, j in zip(xi, yi):
-            exp_sub[i, j] = exp[d]
-        
-    normed = sub / exp_sub
-
-    return normed
+      xi, yi = np.where(D == d)
+      for i, j in zip(xi, yi):
+          exp_sub[i, j] = exp[d]
+    
+    return sub / exp_sub
     
 @njit
 def image_normalize(arr_2d):

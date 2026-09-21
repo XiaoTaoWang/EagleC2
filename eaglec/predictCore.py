@@ -3,17 +3,8 @@ import numpy as np
 import tensorflow as tf
 from collections import defaultdict
 from sklearn.cluster import dbscan
-from eaglec.utilities import distance_normaize_core, get_queue, dict2list, list2dict
-
-# load models that directly output probabilities
-def load_models(root_folder):
-
-    model_paths = glob.glob(os.path.join(root_folder, '*.keras'))
-    models = []
-    for f in model_paths:
-        models.append(tf.keras.models.load_model(f))
-    
-    return models
+from eaglec.utilities import distance_normaize_core, image_normalize, \
+    get_queue, dict2list, list2dict
 
 def load_fcn_model():
 
@@ -101,10 +92,6 @@ def predict(cache_folder, models, ref_gaps, prob_cutoff=0.2, batch_size=256):
         images = np.r_[[d[0] for d in data]]
         info = [d[1] for d in data]
         prob_mean = predict_with_ensemble_models(images, models, batch_size)
-        #images = convert2TF(images, batch_size)
-        #prob_pool = np.stack([model.predict(images) for model in models])
-        #prob_mean = prob_pool.mean(axis=0)[:,:6]
-        
         for i in range(prob_mean.shape[0]):
             res, c1, p1, c2, p2, fcn_score = info[i]
             prob = prob_mean[i]
@@ -162,6 +149,8 @@ def cross_resolution_mapping(by_res):
 
 def remove_redundant_predictions(by_res):
 
+    if not by_res:
+      return {}
     # remove redundant predictions at coarser resolutions
     mapping_table = cross_resolution_mapping(by_res)
     resolutions = sorted(by_res, reverse=True)
@@ -290,9 +279,11 @@ def check_gaps_and_bounds(sv_list, ref_gaps):
     
     return out
 
-def refine_predictions(by_res, resolutions, models, mcool, balance, expected_intra, expected_inter,
-                       ref_gaps, cache_folder, w=15, baseline_prob=0.2):
+def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gaps,
+                       cache_folder, w=15, baseline_prob=0.2):
 
+    if not by_res:
+      return []
     res_ref = sorted(resolutions, reverse=True)
     res_queue = sorted(by_res, reverse=True)
     if res_queue[-1] == res_ref[-1]:
@@ -314,6 +305,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, expected_int
             
             uri = os.path.join('{0}::resolutions/{1}'.format(mcool, qr))
             clr = cooler.Cooler(uri)
+            matrix_selector = clr.matrix(balance=balance, sparse=False)
 
             data = []
             cache_files = []
@@ -326,6 +318,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, expected_int
                 c1, p1, c2, p2 = line[:4]
                 s_l = range((p1-tr)//qr, int(np.ceil((p1+tr*2)/qr)))
                 e_l = range((p2-tr)//qr, int(np.ceil((p2+tr*2)/qr)))
+                valid_centers = []
                 for x in s_l:
                     for y in e_l:
                         if c1 == c2:
@@ -338,26 +331,43 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, expected_int
                         interval2 = (c2, y*qr-qr*w, y*qr+qr*w+qr)
                         if (interval2[1] < 0) or (interval2[2] > clr.chromsizes[c2]):
                             continue
-                        M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
-                        M[np.isnan(M)] = 0
+                        valid_centers.append((x, y))
 
-                        if M.max() == M.min():
-                            continue
+                if not valid_centers:
+                    continue
 
-                        if c1 == c2:
-                            M = M.astype(expected_intra[qr][c1].dtype)
-                            M = distance_normaize_core(M, expected_intra[qr][c1], x, y, w)
-                        else:
-                            M = M / expected_inter[qr][(c1, c2)]
+                x_min = min(x for x, _ in valid_centers)
+                x_max = max(x for x, _ in valid_centers)
+                y_min = min(y for _, y in valid_centers)
+                y_max = max(y for _, y in valid_centers)
 
-                        M = np.log1p(M)
-                        data.append((M, (c1, x*qr, c2, y*qr), k))
-                        count += 1
-                        if len(data) > batch_size:
-                            outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))
-                            joblib.dump(data, outfil, compress=('xz', 3))
-                            cache_files.append(outfil)
-                            data = []
+                # Fetch the overlapping windows once while keeping their order.
+                block = matrix_selector.fetch(
+                    (c1, (x_min-w)*qr, (x_max+w+1)*qr),
+                    (c2, (y_min-w)*qr, (y_max+w+1)*qr),
+                )
+                for x, y in valid_centers:
+                    M = block[
+                        x-x_min:x-x_min+2*w+1,
+                        y-y_min:y-y_min+2*w+1,
+                    ].copy()
+                    M[np.isnan(M)] = 0
+                    M = M.astype(exp[qr][c1].dtype)
+
+                    if M.max() == M.min():
+                        continue
+
+                    if c1 == c2:
+                        M = distance_normaize_core(M, exp[qr][c1], x, y, w)
+
+                    M = image_normalize(M)
+                    data.append((M, (c1, x*qr, c2, y*qr), k))
+                    count += 1
+                    if len(data) > batch_size:
+                        outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))
+                        joblib.dump(data, outfil, compress=('xz', 3))
+                        cache_files.append(outfil)
+                        data = []
 
             if len(data):
                 outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))

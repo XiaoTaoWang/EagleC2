@@ -1,6 +1,6 @@
 import cooler, os, logging, joblib
 import numpy as np
-from eaglec.utilities import distance_normaize_core
+from eaglec.utilities import distance_normaize_core, image_normalize
 from joblib import Parallel, delayed
 
 log = logging.getLogger(__name__)
@@ -15,7 +15,8 @@ def check_sparsity(M):
         return True
 
 def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder):
-
+    if len(coords) == 0:
+      return 0
     uri = '{0}::resolutions/{1}'.format(mcool, res)
     clr = cooler.Cooler(uri)
     Matrix = clr.matrix(balance=balance, sparse=True).fetch(c1, c2).tocsr()
@@ -45,19 +46,16 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
             for i in range(txi.size):
                 x = txi[i]
                 y = tyi[i]
-                window = vvv[i]
+                window = vvv[i].astype(exp.dtype)
                 window[np.isnan(window)] = 0
                 
                 if not check_sparsity(window):
                     continue
                 
                 if c1 == c2:
-                    window = window.astype(exp.dtype)
                     window = distance_normaize_core(window, exp, x, y, w)
-                else:
-                    window = window / exp
 
-                window = np.log1p(window)
+                window = image_normalize(window)
                 data.append((window, (c1, x, c2, y, res)))
             
             if len(data) > 0:
@@ -86,7 +84,7 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
             for i in range(txi.size):
                 x = txi[i]
                 y = tyi[i]
-                window = vvv[i]
+                window = vvv[i].astype(exp.dtype)
                 window[np.isnan(window)] = 0
 
                 nonzero = window[window.nonzero()]   
@@ -94,13 +92,12 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
                     continue
                 
                 if c1 == c2:
-                    window = vvv[i].astype(exp.dtype)
                     window = distance_normaize_core(window, exp, x, y, w)
-                else:
-                    window = window / exp
 
-                window = np.log1p(window)
-                window_full = np.zeros((31, 31))
+                window = image_normalize(window)
+                if window[window>0].size == 0:
+                    continue
+                window_full = np.random.random((31, 31)) * window[window>0].min()
                 window_full[8:23, 8:23] = window
                 data.append((window_full, (c1, x, c2, y, res)))
             
@@ -112,7 +109,7 @@ def collect_images_core(mcool, res, c1, c2, coords, balance, exp, w, cachefolder
     return count
 
 
-def collect_images(mcool, by_res, expected_values_intra, expected_values_inter, balance, cachefolder,
+def collect_images(mcool, by_res, expected_values, balance, cachefolder,
                    w=15, nproc=8):
 
     queue = []
@@ -120,10 +117,11 @@ def collect_images(mcool, by_res, expected_values_intra, expected_values_inter, 
         for c1, c2 in by_res[res]:
             if c1 == c2:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values_intra[res][c1], w, cachefolder))
+                              balance, expected_values[res][c1], w,
+                              cachefolder))
             else:
                 queue.append((mcool, res, c1, c2, by_res[res][(c1, c2)],
-                              balance, expected_values_inter[res][(c1, c2)], w, cachefolder))
+                              balance, expected_values[res][c1], w, cachefolder))
     
     results = Parallel(n_jobs=nproc)(delayed(collect_images_core)(*i) for i in queue)
     total_n = 0
