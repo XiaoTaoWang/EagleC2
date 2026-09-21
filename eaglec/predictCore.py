@@ -305,6 +305,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
             
             uri = os.path.join('{0}::resolutions/{1}'.format(mcool, qr))
             clr = cooler.Cooler(uri)
+            matrix_selector = clr.matrix(balance=balance, sparse=False)
 
             data = []
             cache_files = []
@@ -317,6 +318,7 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
                 c1, p1, c2, p2 = line[:4]
                 s_l = range((p1-tr)//qr, int(np.ceil((p1+tr*2)/qr)))
                 e_l = range((p2-tr)//qr, int(np.ceil((p2+tr*2)/qr)))
+                valid_centers = []
                 for x in s_l:
                     for y in e_l:
                         if c1 == c2:
@@ -329,24 +331,43 @@ def refine_predictions(by_res, resolutions, models, mcool, balance, exp, ref_gap
                         interval2 = (c2, y*qr-qr*w, y*qr+qr*w+qr)
                         if (interval2[1] < 0) or (interval2[2] > clr.chromsizes[c2]):
                             continue
-                        M = clr.matrix(balance=balance, sparse=False).fetch(interval1, interval2)
-                        M[np.isnan(M)] = 0
-                        M = M.astype(exp[qr][c1].dtype)
+                        valid_centers.append((x, y))
 
-                        if M.max() == M.min():
-                            continue
+                if not valid_centers:
+                    continue
 
-                        if c1 == c2:
-                            M = distance_normaize_core(M, exp[qr][c1], x, y, w)
-                        
-                        M = image_normalize(M)
-                        data.append((M, (c1, x*qr, c2, y*qr), k))
-                        count += 1
-                        if len(data) > batch_size:
-                            outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))
-                            joblib.dump(data, outfil, compress=('xz', 3))
-                            cache_files.append(outfil)
-                            data = []
+                x_min = min(x for x, _ in valid_centers)
+                x_max = max(x for x, _ in valid_centers)
+                y_min = min(y for _, y in valid_centers)
+                y_max = max(y for _, y in valid_centers)
+
+                # Fetch the overlapping windows once while keeping their order.
+                block = matrix_selector.fetch(
+                    (c1, (x_min-w)*qr, (x_max+w+1)*qr),
+                    (c2, (y_min-w)*qr, (y_max+w+1)*qr),
+                )
+                for x, y in valid_centers:
+                    M = block[
+                        x-x_min:x-x_min+2*w+1,
+                        y-y_min:y-y_min+2*w+1,
+                    ].copy()
+                    M[np.isnan(M)] = 0
+                    M = M.astype(exp[qr][c1].dtype)
+
+                    if M.max() == M.min():
+                        continue
+
+                    if c1 == c2:
+                        M = distance_normaize_core(M, exp[qr][c1], x, y, w)
+
+                    M = image_normalize(M)
+                    data.append((M, (c1, x*qr, c2, y*qr), k))
+                    count += 1
+                    if len(data) > batch_size:
+                        outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))
+                        joblib.dump(data, outfil, compress=('xz', 3))
+                        cache_files.append(outfil)
+                        data = []
 
             if len(data):
                 outfil = os.path.join(cache_folder, 'refine.{0}_{1}_{2}.pkl'.format(tr, qr, count))

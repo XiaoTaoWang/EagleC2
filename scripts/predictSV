@@ -164,6 +164,9 @@ def run():
         for res in refine_resolutions:
             logger.info('  Resolution {0}'.format(res))
             max_bins = max(200, 2000000//res)
+            if max_bins > 2000:
+                max_bins = 2000
+                logger.info('    Max bins set to 2000 for resolution {0}'.format(res))
             clr = cooler.Cooler('{0}::resolutions/{1}'.format(args.mcool, res))
             expected_values[res] = calculate_expected(clr, chroms, balance, max_bins, nproc=args.nproc)
             
